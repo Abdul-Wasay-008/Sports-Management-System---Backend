@@ -1,0 +1,31 @@
+{
+  "source": "Sports Week 2025 Manual-Final.pdf",
+  "notes": [
+    "This file stores a faithful high-level extraction snapshot from the manual.",
+    "Raw line-level OCR artifacts should be preserved externally if needed."
+  ],
+  "coreCommittee": [
+    "Dr. S. M. M. Raza Naqvi (Convener)",
+    "Dr. M. Sagheer",
+    "Dr. Syeda Marriam Bakhtiar",
+    "Dr. Mahboob Alam",
+    "Dr. Umer Farooq Ahmed",
+    "Mr. Abrar Arshad",
+    "Khalil Uddin (Secretary / Manager Sports)"
+  ],
+  "departmentsCount": 15,
+  "sportsFamilies": [
+    "Athletics",
+    "Badminton",
+    "Basketball",
+    "Chess",
+    "Cricket",
+    "Football",
+    "Lawn Tennis",
+    "Snooker",
+    "Squash",
+    "Table Tennis",
+    "Tug of War",
+    "Volleyball"
+  ]
+}

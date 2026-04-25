@@ -1,4 +1,5 @@
 import { Schema, Types, model } from "mongoose";
+import { STUDENT_GENDERS, SPORTS_WEEK_DEPARTMENTS } from "../constants/sports-week.js";
 
 export type RegistrationStatus = "pending" | "accepted" | "rejected" | "cancelled";
 
@@ -9,6 +10,8 @@ export interface RegistrationDocument {
   decisionNote?: string;
   decidedByManagerId?: Types.ObjectId;
   decidedAt?: Date;
+  studentDepartment?: string;
+  studentGender?: "male" | "female";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,6 +29,8 @@ const registrationSchema = new Schema<RegistrationDocument>(
     decisionNote: { type: String, required: false, trim: true },
     decidedByManagerId: { type: Schema.Types.ObjectId, ref: "GameManager", required: false },
     decidedAt: { type: Date, required: false },
+    studentDepartment: { type: String, enum: SPORTS_WEEK_DEPARTMENTS, required: false, index: true },
+    studentGender: { type: String, enum: STUDENT_GENDERS, required: false, index: true },
   },
   { timestamps: true },
 );

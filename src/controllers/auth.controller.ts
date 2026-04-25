@@ -8,11 +8,7 @@ import {
   verifyStudentEmail,
 } from "../services/auth.service.js";
 import { AppError } from "../utils/errors.js";
-
-function parseGender(value: unknown): "male" | "female" {
-  if (value === "male" || value === "female") return value;
-  throw new AppError("Please select a valid gender.", 400);
-}
+import { parseStudentGender } from "../utils/validators.js";
 
 function handleError(res: Response, err: unknown) {
   if (err instanceof AppError) {
@@ -28,7 +24,7 @@ export async function registerHandler(req: Request, res: Response) {
       name: String(req.body.name ?? ""),
       email: String(req.body.email ?? ""),
       registrationNumber: String(req.body.registrationNumber ?? ""),
-      gender: parseGender(req.body.gender),
+      gender: parseStudentGender(req.body.gender),
       department: String(req.body.department ?? ""),
       password: String(req.body.password ?? ""),
     });

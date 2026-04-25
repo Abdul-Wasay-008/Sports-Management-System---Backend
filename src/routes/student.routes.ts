@@ -2,7 +2,9 @@ import { Router } from "express";
 import {
   committeeHandler,
   dashboardHandler,
+  departmentTeamManagersHandler,
   gameDetailsHandler,
+  gameCategoriesHandler,
   gameManagersHandler,
   gamesHandler,
   myRegistrationsHandler,
@@ -30,6 +32,8 @@ studentRouter.get("/schedule", scheduleHandler);
 studentRouter.get("/rules", rulesHandler);
 studentRouter.get("/committee", committeeHandler);
 studentRouter.get("/game-managers", gameManagersHandler);
+studentRouter.get("/team-managers", departmentTeamManagersHandler);
+studentRouter.get("/game-categories", gameCategoriesHandler);
 studentRouter.get("/results", resultsHandler);
 studentRouter.get("/stats", statsHandler);
 studentRouter.get("/notifications", notificationsHandler);

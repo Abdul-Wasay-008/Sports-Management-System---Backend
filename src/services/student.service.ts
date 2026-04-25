@@ -1,4 +1,8 @@
 import { Types } from "mongoose";
+import { CommitteeMemberModel } from "../models/CommitteeMember.js";
+import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamManagerAssignment.js";
+import { GameCategoryModel } from "../models/GameCategory.js";
+import { GameManagerAssignmentModel } from "../models/GameManagerAssignment.js";
 import { GameManagerModel } from "../models/GameManager.js";
 import { GameModel } from "../models/Game.js";
 import { NotificationModel } from "../models/Notification.js";
@@ -6,6 +10,7 @@ import { RegistrationModel, type RegistrationStatus } from "../models/Registrati
 import { ResultModel } from "../models/Result.js";
 import { RuleModel } from "../models/Rule.js";
 import { UserModel } from "../models/User.js";
+import { type GameGender, type SportsWeekDepartment } from "../constants/sports-week.js";
 import { AppError } from "../utils/errors.js";
 
 type PopulatedManager = {
@@ -21,6 +26,15 @@ type PopulatedGame = {
   _id: Types.ObjectId;
   title: string;
   venue: string;
+  slug?: string;
+  genderCategory?: "male" | "female" | "mixed";
+};
+
+type StudentQueryFilters = {
+  department?: SportsWeekDepartment;
+  gender?: GameGender;
+  gameCategoryId?: string;
+  gameId?: string;
 };
 
 function assertEligible(studentGender: "male" | "female", gameGender: "male" | "female" | "mixed") {
@@ -33,7 +47,10 @@ export async function getStudentDashboard(userId: string) {
   const student = await UserModel.findById(userId);
   if (!student) throw new AppError("Student not found.", 404);
 
-  const activeGames = await GameModel.countDocuments({ isActive: true });
+  const activeGames = await GameModel.countDocuments({
+    isActive: true,
+    genderCategory: { $in: [student.gender, "mixed"] },
+  });
   const myRegistrations = await RegistrationModel.find({ studentId: student._id });
   const pending = myRegistrations.filter((r) => r.status === "pending").length;
   const accepted = myRegistrations.filter((r) => r.status === "accepted").length;
@@ -60,18 +77,32 @@ export async function getStudentDashboard(userId: string) {
   };
 }
 
-export async function getEligibleGames(userId: string) {
+export async function getEligibleGames(userId: string, filters: StudentQueryFilters = {}) {
   const student = await UserModel.findById(userId);
   if (!student) throw new AppError("Student not found.", 404);
 
-  const games = await GameModel.find({
+  const gameQuery: Record<string, unknown> = {
     isActive: true,
     genderCategory: { $in: [student.gender, "mixed"] },
-  })
+  };
+
+  if (filters.gender) {
+    gameQuery.genderCategory =
+      filters.gender === "mixed" ? "mixed" : { $in: [filters.gender, "mixed"] };
+  }
+  if (filters.gameId && Types.ObjectId.isValid(filters.gameId)) {
+    gameQuery._id = new Types.ObjectId(filters.gameId);
+  }
+  if (filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)) {
+    gameQuery.gameCategoryId = new Types.ObjectId(filters.gameCategoryId);
+  }
+
+  const games = await GameModel.find(gameQuery)
     .populate("managerId")
     .sort({ title: 1 });
 
   return games.map((game) => {
+    if (filters.department && filters.department !== student.department) return null;
     const manager = game.managerId as unknown as PopulatedManager | null;
     return {
     id: String(game._id),
@@ -91,7 +122,7 @@ export async function getEligibleGames(userId: string) {
         }
       : null,
   };
-  });
+  }).filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
 export async function getGameDetails(userId: string, gameId: string) {
@@ -155,6 +186,8 @@ export async function registerForGame(userId: string, gameId: string) {
     studentId: student._id,
     gameId: game._id,
     status: "pending",
+    studentDepartment: student.department,
+    studentGender: student.gender,
   });
 
   await NotificationModel.create({
@@ -174,7 +207,7 @@ export async function registerForGame(userId: string, gameId: string) {
   };
 }
 
-export async function getMyRegistrations(userId: string) {
+export async function getMyRegistrations(userId: string, filters: StudentQueryFilters = {}) {
   const student = await UserModel.findById(userId);
   if (!student) throw new AppError("Student not found.", 404);
 
@@ -184,6 +217,15 @@ export async function getMyRegistrations(userId: string) {
 
   return registrations.map((row) => {
     const game = row.gameId as unknown as PopulatedGame | null;
+    if (filters.gender && game?.genderCategory) {
+      const eligible =
+        filters.gender === "mixed"
+          ? game.genderCategory === "mixed"
+          : [filters.gender, "mixed"].includes(game.genderCategory);
+      if (!eligible) return null;
+    }
+    if (filters.gameId && game && String(game._id) !== filters.gameId) return null;
+    if (filters.department && filters.department !== student.department) return null;
     return {
     id: String(row._id),
     status: row.status,
@@ -198,7 +240,7 @@ export async function getMyRegistrations(userId: string) {
         }
       : null,
   };
-  });
+  }).filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
 export async function decideRegistration(
@@ -256,35 +298,87 @@ export async function getRules() {
 }
 
 export async function getCommittee() {
-  return [];
+  const members = await CommitteeMemberModel.find({ committeeType: "core" }).sort({ order: 1 });
+  return members.map((member) => ({
+    _id: String(member._id),
+    name: member.name,
+    role: member.title,
+    contact: "Sports Office",
+  }));
 }
 
-export async function getGameManagers() {
-  return GameManagerModel.find().sort({ name: 1 });
+export async function getGameManagers(filters: StudentQueryFilters = {}) {
+  const assignmentQuery: Record<string, unknown> = {};
+  if (filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)) {
+    assignmentQuery.gameCategoryId = new Types.ObjectId(filters.gameCategoryId);
+  }
+
+  const assignments = await GameManagerAssignmentModel.find(assignmentQuery)
+    .populate("managerId")
+    .populate("gameCategoryId")
+    .sort({ createdAt: -1 });
+
+  if (assignments.length === 0) {
+    return GameManagerModel.find().sort({ name: 1 });
+  }
+
+  return assignments.map((assignment) => {
+    const manager = assignment.managerId as unknown as PopulatedManager | null;
+    const category = assignment.gameCategoryId as unknown as { _id: Types.ObjectId; name: string } | null;
+    return {
+      _id: String(assignment._id),
+      managerId: manager ? String(manager._id) : null,
+      name: manager?.name ?? "Unknown manager",
+      email: manager?.email ?? "",
+      phone: manager?.phone ?? "",
+      officeAddress: manager?.officeAddress ?? "",
+      officeHours: manager?.officeHours ?? "",
+      categoryId: category ? String(category._id) : null,
+      categoryName: category?.name ?? "",
+    };
+  });
 }
 
-export async function getResults() {
-  return ResultModel.find().sort({ playedAt: -1 });
+export async function getResults(userId: string, filters: StudentQueryFilters = {}) {
+  const student = await UserModel.findById(userId);
+  if (!student) throw new AppError("Student not found.", 404);
+
+  const resultQuery: Record<string, unknown> = {};
+  if (filters.gender) resultQuery.genderCategory = filters.gender;
+  if (filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)) {
+    resultQuery.gameCategoryId = new Types.ObjectId(filters.gameCategoryId);
+  }
+  if (filters.gameId && Types.ObjectId.isValid(filters.gameId)) {
+    resultQuery.gameId = new Types.ObjectId(filters.gameId);
+  }
+  if (filters.department && filters.department !== student.department) return [];
+  return ResultModel.find(resultQuery).sort({ playedAt: -1 });
 }
 
-export async function getStats() {
+export async function getStats(userId: string, filters: StudentQueryFilters = {}) {
+  const student = await UserModel.findById(userId);
+  if (!student) throw new AppError("Student not found.", 404);
+  if (filters.department && filters.department !== student.department) {
+    return { byDepartment: [], byGame: [] };
+  }
+
+  const registrationMatch: Record<string, unknown> = { status: "accepted" };
+  if (filters.gender) registrationMatch.studentGender = filters.gender;
+  if (filters.department) registrationMatch.studentDepartment = filters.department;
+
   const byDepartment = await RegistrationModel.aggregate([
-    { $match: { status: "accepted" } },
-    {
-      $lookup: {
-        from: "users",
-        localField: "studentId",
-        foreignField: "_id",
-        as: "student",
-      },
-    },
-    { $unwind: "$student" },
-    { $group: { _id: "$student.department", value: { $sum: 1 } } },
+    { $match: registrationMatch },
+    { $group: { _id: "$studentDepartment", value: { $sum: 1 } } },
     { $sort: { value: -1 } },
   ]);
 
+  const gameMatchStages =
+    filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)
+      ? [{ $match: { "game.gameCategoryId": new Types.ObjectId(filters.gameCategoryId) } }]
+      : [];
+
   const byGame = await RegistrationModel.aggregate([
-    { $match: { status: "accepted" } },
+    { $match: registrationMatch },
     {
       $lookup: {
         from: "games",
@@ -294,6 +388,7 @@ export async function getStats() {
       },
     },
     { $unwind: "$game" },
+    ...gameMatchStages,
     { $group: { _id: "$game.title", value: { $sum: 1 } } },
     { $sort: { value: -1 } },
   ]);
@@ -308,4 +403,36 @@ export async function getNotifications(userId: string) {
   const student = await UserModel.findById(userId);
   if (!student) throw new AppError("Student not found.", 404);
   return NotificationModel.find({ studentId: student._id }).sort({ createdAt: -1 }).limit(30);
+}
+
+export async function getDepartmentTeamManagers(filters: StudentQueryFilters = {}) {
+  const query: Record<string, unknown> = {};
+  if (filters.department) query.department = filters.department;
+  if (filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)) {
+    query.gameCategoryId = new Types.ObjectId(filters.gameCategoryId);
+  }
+  const rows = await DepartmentTeamManagerAssignmentModel.find(query)
+    .populate("gameCategoryId")
+    .sort({ department: 1 });
+  return rows.map((row) => {
+    const category = row.gameCategoryId as unknown as { _id: Types.ObjectId; name: string } | null;
+    return {
+      _id: String(row._id),
+      department: row.department,
+      managerName: row.managerName,
+      contact: row.contact ?? null,
+      gameCategoryId: category ? String(category._id) : null,
+      gameCategoryName: category?.name ?? "",
+    };
+  });
+}
+
+export async function getGameCategories() {
+  const rows = await GameCategoryModel.find({ isActive: true }).sort({ name: 1 });
+  return rows.map((row) => ({
+    id: String(row._id),
+    name: row.name,
+    slug: row.slug,
+    gender: row.gender,
+  }));
 }

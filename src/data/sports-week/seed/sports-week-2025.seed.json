@@ -1,0 +1,122 @@
+{
+  "sports": [
+    {
+      "name": "Athletics",
+      "slug": "athletics",
+      "categories": [
+        { "name": "Athletics Boys", "slug": "athletics-boys", "gender": "male" },
+        { "name": "Athletics Girls", "slug": "athletics-girls", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Badminton",
+      "slug": "badminton",
+      "categories": [
+        { "name": "Badminton Boys Singles", "slug": "badminton-boys-singles", "gender": "male" },
+        { "name": "Badminton Boys Doubles", "slug": "badminton-boys-doubles", "gender": "male" },
+        { "name": "Badminton Girls Singles", "slug": "badminton-girls-singles", "gender": "female" },
+        { "name": "Badminton Girls Doubles", "slug": "badminton-girls-doubles", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Basketball",
+      "slug": "basketball",
+      "categories": [
+        { "name": "Basketball Boys", "slug": "basketball-boys", "gender": "male" },
+        { "name": "Basketball Girls", "slug": "basketball-girls", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Chess",
+      "slug": "chess",
+      "categories": [
+        { "name": "Chess Boys", "slug": "chess-boys", "gender": "male" },
+        { "name": "Chess Girls", "slug": "chess-girls", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Cricket",
+      "slug": "cricket",
+      "categories": [
+        { "name": "Cricket Boys", "slug": "cricket-boys", "gender": "male" },
+        { "name": "Cricket Girls", "slug": "cricket-girls", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Football",
+      "slug": "football",
+      "categories": [{ "name": "Football Boys", "slug": "football-boys", "gender": "male" }]
+    },
+    {
+      "name": "Lawn Tennis",
+      "slug": "lawn-tennis",
+      "categories": [
+        { "name": "Lawn Tennis Boys Singles", "slug": "lawn-tennis-boys-singles", "gender": "male" },
+        { "name": "Lawn Tennis Boys Doubles", "slug": "lawn-tennis-boys-doubles", "gender": "male" },
+        { "name": "Lawn Tennis Girls Singles", "slug": "lawn-tennis-girls-singles", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Snooker",
+      "slug": "snooker",
+      "categories": [
+        { "name": "Snooker Boys Singles", "slug": "snooker-boys-singles", "gender": "male" },
+        { "name": "Snooker Boys Doubles", "slug": "snooker-boys-doubles", "gender": "male" },
+        { "name": "Snooker Girls Singles", "slug": "snooker-girls-singles", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Squash",
+      "slug": "squash",
+      "categories": [{ "name": "Squash Boys", "slug": "squash-boys", "gender": "male" }]
+    },
+    {
+      "name": "Table Tennis",
+      "slug": "table-tennis",
+      "categories": [
+        { "name": "Table Tennis Boys Singles", "slug": "table-tennis-boys-singles", "gender": "male" },
+        { "name": "Table Tennis Boys Doubles", "slug": "table-tennis-boys-doubles", "gender": "male" },
+        { "name": "Table Tennis Girls Singles", "slug": "table-tennis-girls-singles", "gender": "female" },
+        { "name": "Table Tennis Girls Doubles", "slug": "table-tennis-girls-doubles", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Tug of War",
+      "slug": "tug-of-war",
+      "categories": [
+        { "name": "Tug of War Boys", "slug": "tug-of-war-boys", "gender": "male" },
+        { "name": "Tug of War Girls", "slug": "tug-of-war-girls", "gender": "female" }
+      ]
+    },
+    {
+      "name": "Volleyball",
+      "slug": "volleyball",
+      "categories": [{ "name": "Volleyball Boys", "slug": "volleyball-boys", "gender": "male" }]
+    }
+  ],
+  "coreCommittee": [
+    { "name": "Dr. S. M. M. Raza Naqvi", "title": "Convener", "order": 1 },
+    { "name": "Dr. M. Sagheer", "title": "Core Committee Member", "order": 2 },
+    { "name": "Dr. Syeda Marriam Bakhtiar", "title": "Core Committee Member", "order": 3 },
+    { "name": "Dr. Mahboob Alam", "title": "Core Committee Member", "order": 4 },
+    { "name": "Dr. Umer Farooq Ahmed", "title": "Core Committee Member", "order": 5 },
+    { "name": "Mr. Abrar Arshad", "title": "Core Committee Member", "order": 6 },
+    { "name": "Khalil Uddin", "title": "Secretary / Manager Sports", "order": 7 }
+  ],
+  "gameManagers": [
+    { "name": "Irfan Zafar", "categorySlug": "athletics-boys", "department": "Sports Office" },
+    { "name": "Anam Naseem", "categorySlug": "athletics-girls", "department": "Sports Office" },
+    { "name": "Azhar Rauf", "categorySlug": "badminton-boys-singles", "department": "Sports Office" },
+    { "name": "Azhar Rauf", "categorySlug": "badminton-boys-doubles", "department": "Sports Office" },
+    { "name": "Rokhma un-Nisa", "categorySlug": "badminton-girls-singles", "department": "Sports Office" },
+    { "name": "Rokhma un-Nisa", "categorySlug": "badminton-girls-doubles", "department": "Sports Office" },
+    { "name": "Saqib Naveed", "categorySlug": "basketball-boys", "department": "Sports Office" },
+    { "name": "Sadaf Adalat", "categorySlug": "basketball-girls", "department": "Sports Office" },
+    { "name": "Aamer Nadeem", "categorySlug": "chess-boys", "department": "Sports Office" },
+    { "name": "Rashid Ali", "categorySlug": "chess-girls", "department": "Sports Office" },
+    { "name": "Sohail Afzal", "categorySlug": "cricket-boys", "department": "Sports Office" },
+    { "name": "Asma Naz", "categorySlug": "cricket-girls", "department": "Sports Office" },
+    { "name": "M. Umar Toor", "categorySlug": "football-boys", "department": "Sports Office" }
+  ],
+  "departmentTeamManagers": []
+}

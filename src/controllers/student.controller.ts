@@ -2,6 +2,8 @@ import type { Response } from "express";
 import type { AuthenticatedRequest } from "../middleware/auth.middleware.js";
 import {
   decideRegistration,
+  getDepartmentTeamManagers,
+  getGameCategories,
   getCommittee,
   getEligibleGames,
   getGameDetails,
@@ -16,6 +18,10 @@ import {
   registerForGame,
 } from "../services/student.service.js";
 import { AppError } from "../utils/errors.js";
+import {
+  parseOptionalDepartmentFilter,
+  parseOptionalGenderFilter,
+} from "../utils/validators.js";
 
 function handleError(res: Response, err: unknown) {
   if (err instanceof AppError) {
@@ -43,7 +49,12 @@ export async function dashboardHandler(req: AuthenticatedRequest, res: Response)
 
 export async function gamesHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await getEligibleGames(requireUserId(req));
+    const data = await getEligibleGames(requireUserId(req), {
+      department: parseOptionalDepartmentFilter(req.query.department),
+      gender: parseOptionalGenderFilter(req.query.gender),
+      gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
+      gameId: typeof req.query.gameId === "string" ? req.query.gameId : undefined,
+    });
     return res.status(200).json({ games: data });
   } catch (err) {
     return handleError(res, err);
@@ -70,7 +81,11 @@ export async function registerGameHandler(req: AuthenticatedRequest, res: Respon
 
 export async function myRegistrationsHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await getMyRegistrations(requireUserId(req));
+    const data = await getMyRegistrations(requireUserId(req), {
+      department: parseOptionalDepartmentFilter(req.query.department),
+      gender: parseOptionalGenderFilter(req.query.gender),
+      gameId: typeof req.query.gameId === "string" ? req.query.gameId : undefined,
+    });
     return res.status(200).json({ registrations: data });
   } catch (err) {
     return handleError(res, err);
@@ -120,27 +135,38 @@ export async function committeeHandler(_req: AuthenticatedRequest, res: Response
   }
 }
 
-export async function gameManagersHandler(_req: AuthenticatedRequest, res: Response) {
+export async function gameManagersHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await getGameManagers();
+    const data = await getGameManagers({
+      gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
+    });
     return res.status(200).json({ managers: data });
   } catch (err) {
     return handleError(res, err);
   }
 }
 
-export async function resultsHandler(_req: AuthenticatedRequest, res: Response) {
+export async function resultsHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await getResults();
+    const data = await getResults(requireUserId(req), {
+      department: parseOptionalDepartmentFilter(req.query.department),
+      gender: parseOptionalGenderFilter(req.query.gender),
+      gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
+      gameId: typeof req.query.gameId === "string" ? req.query.gameId : undefined,
+    });
     return res.status(200).json({ results: data });
   } catch (err) {
     return handleError(res, err);
   }
 }
 
-export async function statsHandler(_req: AuthenticatedRequest, res: Response) {
+export async function statsHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await getStats();
+    const data = await getStats(requireUserId(req), {
+      department: parseOptionalDepartmentFilter(req.query.department),
+      gender: parseOptionalGenderFilter(req.query.gender),
+      gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
+    });
     return res.status(200).json(data);
   } catch (err) {
     return handleError(res, err);
@@ -151,6 +177,27 @@ export async function notificationsHandler(req: AuthenticatedRequest, res: Respo
   try {
     const data = await getNotifications(requireUserId(req));
     return res.status(200).json({ notifications: data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function departmentTeamManagersHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const data = await getDepartmentTeamManagers({
+      department: parseOptionalDepartmentFilter(req.query.department),
+      gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
+    });
+    return res.status(200).json({ teamManagers: data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function gameCategoriesHandler(_req: AuthenticatedRequest, res: Response) {
+  try {
+    const data = await getGameCategories();
+    return res.status(200).json({ categories: data });
   } catch (err) {
     return handleError(res, err);
   }
