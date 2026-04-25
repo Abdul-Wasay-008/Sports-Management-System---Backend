@@ -1,0 +1,35 @@
+import { Router } from "express";
+import {
+  committeeHandler,
+  dashboardHandler,
+  gameDetailsHandler,
+  gameManagersHandler,
+  gamesHandler,
+  myRegistrationsHandler,
+  notificationsHandler,
+  registerGameHandler,
+  registrationDecisionHandler,
+  resultsHandler,
+  rulesHandler,
+  scheduleHandler,
+  statsHandler,
+} from "../controllers/student.controller.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
+
+export const studentRouter = Router();
+
+studentRouter.use(requireAuth);
+
+studentRouter.get("/dashboard", dashboardHandler);
+studentRouter.get("/games", gamesHandler);
+studentRouter.get("/games/:id", gameDetailsHandler);
+studentRouter.post("/games/:id/register", registerGameHandler);
+studentRouter.get("/registrations", myRegistrationsHandler);
+studentRouter.patch("/registrations/:id/decision", registrationDecisionHandler);
+studentRouter.get("/schedule", scheduleHandler);
+studentRouter.get("/rules", rulesHandler);
+studentRouter.get("/committee", committeeHandler);
+studentRouter.get("/game-managers", gameManagersHandler);
+studentRouter.get("/results", resultsHandler);
+studentRouter.get("/stats", statsHandler);
+studentRouter.get("/notifications", notificationsHandler);
