@@ -96,24 +96,34 @@ async function issueAndSendOtp(userId: Types.ObjectId, email: string) {
   });
 }
 
-function toPublicUser(user: {
+export function toPublicUser(user: {
   _id: Types.ObjectId | string;
   name: string;
   email: string;
-  registrationNumber: string;
-  gender: "male" | "female";
-  department: string;
-  role: "student";
+  registrationNumber?: string;
+  gender?: "male" | "female";
+  department?: string;
+  role: "student" | "admin";
   status: "active" | "inactive" | "suspended";
   emailVerified: boolean;
 }) {
+  if (user.role === "admin") {
+    return {
+      id: String(user._id),
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      emailVerified: user.emailVerified,
+    };
+  }
   return {
     id: String(user._id),
     name: user.name,
     email: user.email,
-    registrationNumber: user.registrationNumber,
-    gender: user.gender,
-    department: user.department,
+    registrationNumber: user.registrationNumber as string,
+    gender: user.gender as "male" | "female",
+    department: user.department as string,
     role: user.role,
     status: user.status,
     emailVerified: user.emailVerified,
@@ -196,7 +206,7 @@ export async function registerStudent(input: RegisterInput) {
 
   return {
     message: "Registration successful. Verification code sent to your email.",
-    user: toPublicUser(user),
+    user: toPublicUser(user.toObject()),
   };
 }
 
@@ -254,7 +264,7 @@ export async function verifyStudentEmail(input: VerifyEmailInput) {
   return {
     message: "Email verified successfully.",
     token,
-    user: toPublicUser(user),
+    user: toPublicUser(user.toObject()),
   };
 }
 
@@ -287,11 +297,14 @@ export async function resendVerificationOtp(input: ResendOtpInput) {
 
 export async function loginStudent(input: LoginInput) {
   const email = normalizeEmail(input.email);
-  assertCustEmail(email);
 
   const user = await UserModel.findOne({ email });
   if (!user) {
     throw new AppError("Invalid email or password.", 401);
+  }
+
+  if (user.role !== "admin") {
+    assertCustEmail(email);
   }
 
   const passwordMatches = await bcrypt.compare(input.password, user.passwordHash);
@@ -299,7 +312,7 @@ export async function loginStudent(input: LoginInput) {
     throw new AppError("Invalid email or password.", 401);
   }
 
-  if (!user.emailVerified) {
+  if (user.role !== "admin" && !user.emailVerified) {
     throw new AppError("Please verify your email before signing in.", 403);
   }
 
@@ -316,7 +329,7 @@ export async function loginStudent(input: LoginInput) {
   return {
     message: "Login successful.",
     token,
-    user: toPublicUser(user),
+    user: toPublicUser(user.toObject()),
   };
 }
 
@@ -327,5 +340,5 @@ export async function getCurrentUser(userId: string) {
   if (!user) {
     throw new AppError("User not found.", 404);
   }
-  return toPublicUser(user);
+  return toPublicUser(user.toObject());
 }

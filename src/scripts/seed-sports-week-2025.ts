@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import seedData from "../data/sports-week/seed/sports-week-2025.seed.json" with { type: "json" };
 import { connectDatabase, disconnectDatabase } from "../lib/db.js";
+import { ensureAdminUser } from "../services/admin-bootstrap.service.js";
 import { CommitteeMemberModel } from "../models/CommitteeMember.js";
 import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamManagerAssignment.js";
 import { GameModel } from "../models/Game.js";
@@ -384,6 +385,8 @@ async function run() {
 
   console.log("Sports Week 2025 seed completed.");
   console.log(JSON.stringify(coverage, null, 2));
+
+  await ensureAdminUser();
 }
 
 run()

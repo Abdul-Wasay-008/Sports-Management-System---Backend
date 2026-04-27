@@ -2,11 +2,13 @@ import mongoose from "mongoose";
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { connectDatabase, disconnectDatabase } from "./lib/db.js";
+import { ensureAdminUser } from "./services/admin-bootstrap.service.js";
 
 async function main() {
   if (env.mongodbUri) {
     await connectDatabase(env.mongodbUri);
     console.log("MongoDB connected");
+    await ensureAdminUser();
   } else {
     console.warn(
       "MONGODB_URI is not set — API will run without a database connection.",

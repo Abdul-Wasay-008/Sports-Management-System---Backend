@@ -6,15 +6,15 @@ import {
 } from "../constants/sports-week.js";
 
 export type UserStatus = "active" | "inactive" | "suspended";
-export type UserRole = "student";
+export type UserRole = "student" | "admin";
 export type UserGender = (typeof STUDENT_GENDERS)[number];
 
 export interface UserDocument {
   name: string;
   email: string;
-  registrationNumber: string;
-  gender: UserGender;
-  department: SportsWeekDepartment;
+  registrationNumber?: string;
+  gender?: UserGender;
+  department?: SportsWeekDepartment;
   passwordHash: string;
   role: UserRole;
   status: UserStatus;
@@ -28,11 +28,18 @@ const userSchema = new Schema<UserDocument>(
   {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    registrationNumber: { type: String, required: true, unique: true, trim: true },
-    gender: { type: String, enum: STUDENT_GENDERS, required: true },
-    department: { type: String, enum: SPORTS_WEEK_DEPARTMENTS, required: true, trim: true },
+    registrationNumber: {
+      type: String,
+      required: false,
+      trim: true,
+      uppercase: true,
+      unique: true,
+      sparse: true,
+    },
+    gender: { type: String, enum: STUDENT_GENDERS, required: false },
+    department: { type: String, enum: SPORTS_WEEK_DEPARTMENTS, required: false, trim: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["student"], default: "student", required: true },
+    role: { type: String, enum: ["student", "admin"], default: "student", required: true },
     status: {
       type: String,
       enum: ["active", "inactive", "suspended"],
@@ -46,5 +53,20 @@ const userSchema = new Schema<UserDocument>(
     timestamps: true,
   },
 );
+
+userSchema.pre("validate", function (next) {
+  if (this.role === "student") {
+    if (!this.registrationNumber?.trim()) {
+      return next(new Error("Registration number is required for student accounts."));
+    }
+    if (!this.gender) {
+      return next(new Error("Gender is required for student accounts."));
+    }
+    if (!this.department) {
+      return next(new Error("Department is required for student accounts."));
+    }
+  }
+  next();
+});
 
 export const UserModel = model<UserDocument>("User", userSchema);

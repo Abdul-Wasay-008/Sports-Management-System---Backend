@@ -1,3 +1,4 @@
+import type { HydratedDocument } from "mongoose";
 import { Types } from "mongoose";
 import { CommitteeMemberModel } from "../models/CommitteeMember.js";
 import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamManagerAssignment.js";
@@ -9,6 +10,7 @@ import { NotificationModel } from "../models/Notification.js";
 import { RegistrationModel, type RegistrationStatus } from "../models/Registration.js";
 import { ResultModel } from "../models/Result.js";
 import { RuleModel } from "../models/Rule.js";
+import type { UserDocument } from "../models/User.js";
 import { UserModel } from "../models/User.js";
 import { type GameGender, type SportsWeekDepartment } from "../constants/sports-week.js";
 import { AppError } from "../utils/errors.js";
@@ -45,9 +47,25 @@ function assertEligible(studentGender: "male" | "female", gameGender: "male" | "
   }
 }
 
+async function requireStudentUser(
+  userId: string,
+): Promise<
+  HydratedDocument<UserDocument> & { gender: "male" | "female"; department: SportsWeekDepartment }
+> {
+  const user = await UserModel.findById(userId);
+  if (!user) throw new AppError("Student not found.", 404);
+  if (user.role !== "student") throw new AppError("Student not found.", 404);
+  if (!user.gender || !user.department) {
+    throw new AppError("Student profile is incomplete.", 400);
+  }
+  return user as HydratedDocument<UserDocument> & {
+    gender: "male" | "female";
+    department: SportsWeekDepartment;
+  };
+}
+
 export async function getStudentDashboard(userId: string) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const activeGames = await GameModel.countDocuments({
     isActive: true,
@@ -80,8 +98,7 @@ export async function getStudentDashboard(userId: string) {
 }
 
 export async function getEligibleGames(userId: string, filters: StudentQueryFilters = {}) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const gameQuery: Record<string, unknown> = {
     isActive: true,
@@ -128,8 +145,7 @@ export async function getEligibleGames(userId: string, filters: StudentQueryFilt
 }
 
 export async function getGameDetails(userId: string, gameId: string) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const game = await GameModel.findById(gameId).populate("managerId");
   if (!game || !game.isActive) throw new AppError("Game not found.", 404);
@@ -168,8 +184,7 @@ export async function getGameDetails(userId: string, gameId: string) {
 }
 
 export async function registerForGame(userId: string, gameId: string) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const game = await GameModel.findById(gameId);
   if (!game || !game.isActive) throw new AppError("Game not found.", 404);
@@ -210,8 +225,7 @@ export async function registerForGame(userId: string, gameId: string) {
 }
 
 export async function getMyRegistrations(userId: string, filters: StudentQueryFilters = {}) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const registrations = await RegistrationModel.find({ studentId: student._id })
     .populate("gameId")
@@ -310,8 +324,7 @@ export async function getCommittee() {
 }
 
 export async function getGameManagers(userId: string, filters: StudentQueryFilters = {}) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const assignmentQuery: Record<string, unknown> = {};
   if (filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)) {
@@ -353,8 +366,7 @@ export async function getGameManagers(userId: string, filters: StudentQueryFilte
 }
 
 export async function getResults(userId: string, filters: StudentQueryFilters = {}) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const resultQuery: Record<string, unknown> = {};
   if (filters.gender) resultQuery.genderCategory = filters.gender;
@@ -369,8 +381,7 @@ export async function getResults(userId: string, filters: StudentQueryFilters = 
 }
 
 export async function getStats(userId: string, filters: StudentQueryFilters = {}) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
   if (filters.department && filters.department !== student.department) {
     return { byDepartment: [], byGame: [] };
   }
@@ -413,14 +424,12 @@ export async function getStats(userId: string, filters: StudentQueryFilters = {}
 }
 
 export async function getNotifications(userId: string) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
   return NotificationModel.find({ studentId: student._id }).sort({ createdAt: -1 }).limit(30);
 }
 
 export async function getDepartmentTeamManagers(userId: string, filters: StudentQueryFilters = {}) {
-  const student = await UserModel.findById(userId);
-  if (!student) throw new AppError("Student not found.", 404);
+  const student = await requireStudentUser(userId);
 
   const query: Record<string, unknown> = {};
   query.department = filters.department ?? student.department;
