@@ -113,10 +113,24 @@
     { "name": "Saqib Naveed", "categorySlug": "basketball-boys", "department": "Sports Office" },
     { "name": "Sadaf Adalat", "categorySlug": "basketball-girls", "department": "Sports Office" },
     { "name": "Aamer Nadeem", "categorySlug": "chess-boys", "department": "Sports Office" },
-    { "name": "Rashid Ali", "categorySlug": "chess-girls", "department": "Sports Office" },
+    { "name": "Aamer Nadeem", "categorySlug": "chess-girls", "department": "Sports Office" },
     { "name": "Sohail Afzal", "categorySlug": "cricket-boys", "department": "Sports Office" },
     { "name": "Asma Naz", "categorySlug": "cricket-girls", "department": "Sports Office" },
-    { "name": "M. Umar Toor", "categorySlug": "football-boys", "department": "Sports Office" }
+    { "name": "M. Umar Toor", "categorySlug": "football-boys", "department": "Sports Office" },
+    { "name": "Zeeshan Iltaf", "categorySlug": "lawn-tennis-boys-singles", "department": "Sports Office" },
+    { "name": "Zeeshan Iltaf", "categorySlug": "lawn-tennis-boys-doubles", "department": "Sports Office" },
+    { "name": "Misbah Azam", "categorySlug": "lawn-tennis-girls-singles", "department": "Sports Office" },
+    { "name": "Hafiz M. Adnan", "categorySlug": "snooker-boys-singles", "department": "Sports Office" },
+    { "name": "Hafiz M. Adnan", "categorySlug": "snooker-boys-doubles", "department": "Sports Office" },
+    { "name": "Reem Hassan", "categorySlug": "snooker-girls-singles", "department": "Sports Office" },
+    { "name": "Ahsan Rafiq", "categorySlug": "squash-boys", "department": "Sports Office" },
+    { "name": "Zeeshan Sabir", "categorySlug": "table-tennis-boys-singles", "department": "Sports Office" },
+    { "name": "Zeeshan Sabir", "categorySlug": "table-tennis-boys-doubles", "department": "Sports Office" },
+    { "name": "Shahgull", "categorySlug": "table-tennis-girls-singles", "department": "Sports Office" },
+    { "name": "Shazia Faiz", "categorySlug": "table-tennis-girls-doubles", "department": "Sports Office" },
+    { "name": "Arif Ud Din", "categorySlug": "tug-of-war-boys", "department": "Sports Office" },
+    { "name": "Sadia Rasheed", "categorySlug": "tug-of-war-girls", "department": "Sports Office" },
+    { "name": "Naveed Ahmed", "categorySlug": "volleyball-boys", "department": "Sports Office" }
   ],
   "departmentTeamManagers": []
 }

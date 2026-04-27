@@ -13,6 +13,8 @@ import { UserModel } from "../models/User.js";
 import { type GameGender, type SportsWeekDepartment } from "../constants/sports-week.js";
 import { AppError } from "../utils/errors.js";
 
+void GameManagerModel;
+
 type PopulatedManager = {
   _id: Types.ObjectId;
   name: string;
@@ -307,7 +309,10 @@ export async function getCommittee() {
   }));
 }
 
-export async function getGameManagers(filters: StudentQueryFilters = {}) {
+export async function getGameManagers(userId: string, filters: StudentQueryFilters = {}) {
+  const student = await UserModel.findById(userId);
+  if (!student) throw new AppError("Student not found.", 404);
+
   const assignmentQuery: Record<string, unknown> = {};
   if (filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)) {
     assignmentQuery.gameCategoryId = new Types.ObjectId(filters.gameCategoryId);
@@ -318,13 +323,20 @@ export async function getGameManagers(filters: StudentQueryFilters = {}) {
     .populate("gameCategoryId")
     .sort({ createdAt: -1 });
 
-  if (assignments.length === 0) {
-    return GameManagerModel.find().sort({ name: 1 });
-  }
+  const allowedGender = filters.gender && filters.gender !== "mixed" ? filters.gender : student.gender;
+  const filteredAssignments = assignments.filter((assignment) => {
+    const category = assignment.gameCategoryId as unknown as { gender?: "male" | "female" | "mixed" } | null;
+    if (!category?.gender) return false;
+    return category.gender === "mixed" || category.gender === allowedGender;
+  });
 
-  return assignments.map((assignment) => {
+  return filteredAssignments.map((assignment) => {
     const manager = assignment.managerId as unknown as PopulatedManager | null;
-    const category = assignment.gameCategoryId as unknown as { _id: Types.ObjectId; name: string } | null;
+    const category = assignment.gameCategoryId as unknown as {
+      _id: Types.ObjectId;
+      name: string;
+      gender?: "male" | "female" | "mixed";
+    } | null;
     return {
       _id: String(assignment._id),
       managerId: manager ? String(manager._id) : null,
@@ -335,6 +347,7 @@ export async function getGameManagers(filters: StudentQueryFilters = {}) {
       officeHours: manager?.officeHours ?? "",
       categoryId: category ? String(category._id) : null,
       categoryName: category?.name ?? "",
+      categoryGender: category?.gender ?? null,
     };
   });
 }
@@ -405,17 +418,29 @@ export async function getNotifications(userId: string) {
   return NotificationModel.find({ studentId: student._id }).sort({ createdAt: -1 }).limit(30);
 }
 
-export async function getDepartmentTeamManagers(filters: StudentQueryFilters = {}) {
+export async function getDepartmentTeamManagers(userId: string, filters: StudentQueryFilters = {}) {
+  const student = await UserModel.findById(userId);
+  if (!student) throw new AppError("Student not found.", 404);
+
   const query: Record<string, unknown> = {};
-  if (filters.department) query.department = filters.department;
+  query.department = filters.department ?? student.department;
   if (filters.gameCategoryId && Types.ObjectId.isValid(filters.gameCategoryId)) {
     query.gameCategoryId = new Types.ObjectId(filters.gameCategoryId);
   }
+
+  const allowedGender = filters.gender && filters.gender !== "mixed" ? filters.gender : student.gender;
   const rows = await DepartmentTeamManagerAssignmentModel.find(query)
     .populate("gameCategoryId")
     .sort({ department: 1 });
   return rows.map((row) => {
-    const category = row.gameCategoryId as unknown as { _id: Types.ObjectId; name: string } | null;
+    const category = row.gameCategoryId as unknown as {
+      _id: Types.ObjectId;
+      name: string;
+      gender?: "male" | "female" | "mixed";
+    } | null;
+    if (!category?.gender || (category.gender !== "mixed" && category.gender !== allowedGender)) {
+      return null;
+    }
     return {
       _id: String(row._id),
       department: row.department,
@@ -423,8 +448,9 @@ export async function getDepartmentTeamManagers(filters: StudentQueryFilters = {
       contact: row.contact ?? null,
       gameCategoryId: category ? String(category._id) : null,
       gameCategoryName: category?.name ?? "",
+      gameCategoryGender: category?.gender ?? null,
     };
-  });
+  }).filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
 export async function getGameCategories() {

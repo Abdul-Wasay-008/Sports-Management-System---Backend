@@ -137,7 +137,8 @@ export async function committeeHandler(_req: AuthenticatedRequest, res: Response
 
 export async function gameManagersHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await getGameManagers({
+    const data = await getGameManagers(requireUserId(req), {
+      gender: parseOptionalGenderFilter(req.query.gender),
       gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
     });
     return res.status(200).json({ managers: data });
@@ -184,8 +185,9 @@ export async function notificationsHandler(req: AuthenticatedRequest, res: Respo
 
 export async function departmentTeamManagersHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await getDepartmentTeamManagers({
+    const data = await getDepartmentTeamManagers(requireUserId(req), {
       department: parseOptionalDepartmentFilter(req.query.department),
+      gender: parseOptionalGenderFilter(req.query.gender),
       gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
     });
     return res.status(200).json({ teamManagers: data });
