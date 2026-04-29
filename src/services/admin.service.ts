@@ -16,6 +16,7 @@ import { GameModel } from "../models/Game.js";
 import { NotificationModel } from "../models/Notification.js";
 import { RegistrationModel } from "../models/Registration.js";
 import { ResultModel } from "../models/Result.js";
+import "../models/Sport.js";
 import type { UserRole } from "../models/User.js";
 import { UserModel } from "../models/User.js";
 import { AppError } from "../utils/errors.js";

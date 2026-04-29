@@ -5,39 +5,42 @@ import { UserModel } from "../models/User.js";
 const PASSWORD_ROUNDS = 12;
 
 export async function ensureAdminUser() {
+  const existingAdmin = await UserModel.findOne({ role: "admin" });
+  if (existingAdmin) {
+    console.log("[admin-bootstrap] Admin already exists. Skipping bootstrap.");
+    return;
+  }
+
   const email = ADMIN_BOOTSTRAP.email.toLowerCase().trim();
   const existing = await UserModel.findOne({ email });
 
-  if (!existing) {
-    const passwordHash = await bcrypt.hash(ADMIN_BOOTSTRAP.password, PASSWORD_ROUNDS);
-    await UserModel.create({
-      name: ADMIN_BOOTSTRAP.name,
-      email,
-      passwordHash,
+  if (existing) {
+    const updates: Record<string, unknown> = {
       role: "admin",
       status: "active",
       emailVerified: true,
       emailVerifiedAt: new Date(),
-    });
-    console.log("[admin-bootstrap] Created platform admin user.");
+    };
+
+    const passwordMatches = await bcrypt.compare(ADMIN_BOOTSTRAP.password, existing.passwordHash);
+    if (!passwordMatches) {
+      updates.passwordHash = await bcrypt.hash(ADMIN_BOOTSTRAP.password, PASSWORD_ROUNDS);
+    }
+
+    await UserModel.updateOne({ _id: existing._id }, { $set: updates });
+    console.log("[admin-bootstrap] Promoted configured account to admin.");
     return;
   }
 
-  const updates: Record<string, unknown> = {};
-  if (existing.role !== "admin") updates.role = "admin";
-  if (existing.status !== "active") updates.status = "active";
-  if (!existing.emailVerified) {
-    updates.emailVerified = true;
-    updates.emailVerifiedAt = new Date();
-  }
-
-  const passwordMatches = await bcrypt.compare(ADMIN_BOOTSTRAP.password, existing.passwordHash);
-  if (!passwordMatches) {
-    updates.passwordHash = await bcrypt.hash(ADMIN_BOOTSTRAP.password, PASSWORD_ROUNDS);
-  }
-
-  if (Object.keys(updates).length > 0) {
-    await UserModel.updateOne({ _id: existing._id }, { $set: updates });
-    console.log("[admin-bootstrap] Repaired platform admin user record.");
-  }
+  const passwordHash = await bcrypt.hash(ADMIN_BOOTSTRAP.password, PASSWORD_ROUNDS);
+  await UserModel.create({
+    name: ADMIN_BOOTSTRAP.name,
+    email,
+    passwordHash,
+    role: "admin",
+    status: "active",
+    emailVerified: true,
+    emailVerifiedAt: new Date(),
+  });
+  console.log("[admin-bootstrap] Created platform admin user.");
 }
