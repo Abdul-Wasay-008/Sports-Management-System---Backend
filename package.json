@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "lint": "eslint src",
     "seed:sports-week-2025": "tsx src/scripts/seed-sports-week-2025.ts",
+    "seed:sports-week-2025:reset": "tsx src/scripts/seed-sports-week-2025.ts --reset",
     "db:drop-registration-unique": "tsx src/scripts/drop-registration-student-game-unique-index.ts"
   },
   "dependencies": {

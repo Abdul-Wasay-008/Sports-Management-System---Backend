@@ -3,14 +3,36 @@ import seedData from "../data/sports-week/seed/sports-week-2025.seed.json" with 
 import { connectDatabase, disconnectDatabase } from "../lib/db.js";
 import { ensureAdminUser } from "../services/admin-bootstrap.service.js";
 import { CommitteeMemberModel } from "../models/CommitteeMember.js";
+import { DemoBookingModel } from "../models/DemoBooking.js";
 import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamManagerAssignment.js";
 import { GameModel } from "../models/Game.js";
 import { GameCategoryModel } from "../models/GameCategory.js";
 import { GameManagerAssignmentModel } from "../models/GameManagerAssignment.js";
 import { GameManagerModel } from "../models/GameManager.js";
+import { NotificationModel } from "../models/Notification.js";
+import { RegistrationModel } from "../models/Registration.js";
+import { ResultModel } from "../models/Result.js";
 import { RuleModel } from "../models/Rule.js";
 import { SportModel } from "../models/Sport.js";
 import { SPORTS_WEEK_DEPARTMENTS, normalizeDepartment } from "../constants/sports-week.js";
+
+const RESET_ARG = process.argv.includes("--reset");
+
+async function resetSportsWeekData() {
+  console.log("[seed] --reset: clearing Sports Week collections (users/admin preserved)…");
+  await DemoBookingModel.deleteMany({});
+  await RegistrationModel.deleteMany({});
+  await ResultModel.deleteMany({});
+  await NotificationModel.deleteMany({});
+  await GameManagerAssignmentModel.deleteMany({});
+  await DepartmentTeamManagerAssignmentModel.deleteMany({});
+  await GameModel.deleteMany({});
+  await GameCategoryModel.deleteMany({});
+  await SportModel.deleteMany({});
+  await CommitteeMemberModel.deleteMany({ committeeType: "core" });
+  await RuleModel.deleteMany({});
+  console.log("[seed] --reset: cleared.");
+}
 
 type SeedCategory = {
   name: string;
@@ -224,6 +246,10 @@ async function run() {
   const typedSeed = seedData as SportsWeekSeed;
   await connectDatabase(env.mongodbUri);
 
+  if (RESET_ARG) {
+    await resetSportsWeekData();
+  }
+
   const categoryBySlug = new Map<string, string>();
   const categoryMetaBySlug = new Map<string, { name: string; gender: "male" | "female" | "mixed" }>();
   let skippedManagerAssignments = 0;
@@ -367,6 +393,23 @@ async function run() {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
+  }
+
+  /** Required for demo scheduling: one departmental team manager row per (department × category). */
+  for (const department of SPORTS_WEEK_DEPARTMENTS) {
+    for (const categoryId of categoryBySlug.values()) {
+      await DepartmentTeamManagerAssignmentModel.findOneAndUpdate(
+        { gameCategoryId: categoryId, department },
+        {
+          $setOnInsert: {
+            managerName: `${department} — Team Manager`,
+            contact:
+              "Sports Week seed: contact your department office for demo coordination (replace with a named manager when known).",
+          },
+        },
+        { upsert: true },
+      );
+    }
   }
 
   const coverage = {
