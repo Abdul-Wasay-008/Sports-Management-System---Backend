@@ -216,7 +216,7 @@ export async function adminGameRegistrationsHandler(req: AuthenticatedRequest, r
     const id = String(req.params.id ?? "");
     const status =
       typeof req.query.status === "string" &&
-      ["pending", "accepted", "rejected", "cancelled"].includes(req.query.status)
+      ["demo_booked", "pending", "accepted", "rejected", "cancelled"].includes(req.query.status)
         ? req.query.status
         : undefined;
 

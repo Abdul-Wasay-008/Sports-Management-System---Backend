@@ -2,6 +2,7 @@ import type { Response } from "express";
 import type { AuthenticatedRequest } from "../middleware/auth.middleware.js";
 import {
   decideRegistration,
+  getDemoSlotsForGame,
   getDepartmentTeamManagers,
   getGameCategories,
   getCommittee,
@@ -15,6 +16,7 @@ import {
   getSchedule,
   getStats,
   getStudentDashboard,
+  registerForDemo,
   registerForGame,
 } from "../services/student.service.js";
 import { AppError } from "../utils/errors.js";
@@ -73,6 +75,29 @@ export async function gameDetailsHandler(req: AuthenticatedRequest, res: Respons
 export async function registerGameHandler(req: AuthenticatedRequest, res: Response) {
   try {
     const data = await registerForGame(requireUserId(req), String(req.params.id));
+    return res.status(201).json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function demoSlotsHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const weekStart = typeof req.query.weekStart === "string" ? req.query.weekStart : undefined;
+    const data = await getDemoSlotsForGame(requireUserId(req), String(req.params.id), weekStart);
+    return res.status(200).json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function registerDemoHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const startsAt = String((req.body as { startsAt?: string }).startsAt ?? "");
+    if (!startsAt.trim()) {
+      throw new AppError("startsAt is required (ISO 8601).", 400);
+    }
+    const data = await registerForDemo(requireUserId(req), String(req.params.id), startsAt.trim());
     return res.status(201).json(data);
   } catch (err) {
     return handleError(res, err);

@@ -31,4 +31,7 @@ export const env = {
     10,
   ),
   otpMaxAttempts: Number.parseInt(process.env.OTP_MAX_ATTEMPTS ?? "5", 10),
+  demoScheduleTimezone: process.env.DEMO_SCHEDULE_TIMEZONE?.trim() || "Asia/Karachi",
+  demoScheduleHorizonWeeks: Number.parseInt(process.env.DEMO_SCHEDULE_HORIZON_WEEKS ?? "8", 10),
+  demoMinimumNoticeMinutes: Number.parseInt(process.env.DEMO_MINIMUM_NOTICE_MINUTES ?? "60", 10),
 } as const;

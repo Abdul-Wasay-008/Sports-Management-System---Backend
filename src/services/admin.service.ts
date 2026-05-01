@@ -25,7 +25,6 @@ import {
   normalizeEmail,
   sanitizeDepartment,
   sanitizeRegistrationNumber,
-  parseStudentGender,
 } from "../utils/validators.js";
 
 const PASSWORD_ROUNDS = 10;
@@ -53,6 +52,7 @@ export async function getOverview() {
     slotsAcceptedSum,
     registrationsTotal,
     regPending,
+    regDemoBooked,
     regAccepted,
     regRejected,
     regCancelled,
@@ -71,6 +71,7 @@ export async function getOverview() {
     GameModel.aggregate<{ total: number }>([{ $group: { _id: null, total: { $sum: "$acceptedRegistrations" } } }]),
     RegistrationModel.countDocuments(),
     RegistrationModel.countDocuments({ status: "pending" }),
+    RegistrationModel.countDocuments({ status: "demo_booked" }),
     RegistrationModel.countDocuments({ status: "accepted" }),
     RegistrationModel.countDocuments({ status: "rejected" }),
     RegistrationModel.countDocuments({ status: "cancelled" }),
@@ -95,6 +96,7 @@ export async function getOverview() {
       total: registrationsTotal,
       byStatus: {
         pending: regPending,
+        demoBooked: regDemoBooked,
         accepted: regAccepted,
         rejected: regRejected,
         cancelled: regCancelled,
@@ -545,12 +547,12 @@ export async function deleteGame(gameId: string) {
 
   const blocking = await RegistrationModel.countDocuments({
     gameId: game._id,
-    status: { $in: ["pending", "accepted", "rejected"] },
+    status: { $in: ["demo_booked", "pending", "accepted", "rejected"] },
   });
 
   if (blocking > 0) {
     throw new AppError(
-      "This game has active registrations. Cancel or resolve them before deleting the game.",
+      "This game has registrations (including demos). Resolve or remove them before deleting the game.",
       400,
     );
   }
@@ -588,12 +590,16 @@ export async function listGameRegistrations(gameId: string, params: ListRegsPara
   }
 
   const match: Record<string, unknown> = { gameId: new Types.ObjectId(gameId) };
-  if (params.status && ["pending", "accepted", "rejected", "cancelled"].includes(params.status)) {
+  if (
+    params.status &&
+    ["demo_booked", "pending", "accepted", "rejected", "cancelled"].includes(params.status)
+  ) {
     match.status = params.status;
   }
 
   const rows = await RegistrationModel.find(match)
     .populate("studentId", "name email registrationNumber gender department")
+    .populate("demoBookingId", "startsAt endsAt")
     .sort({ createdAt: -1 })
     .lean();
 
@@ -609,12 +615,24 @@ export async function listGameRegistrations(gameId: string, params: ListRegsPara
         department: string;
       } | null;
 
+      const demoBooking = r.demoBookingId as unknown as {
+        startsAt: Date;
+        endsAt: Date;
+      } | null;
+
       return {
         id: String(r._id),
         status: r.status,
         decisionNote: r.decisionNote,
         decidedAt: r.decidedAt,
         createdAt: r.createdAt,
+        demo:
+          demoBooking && r.status === "demo_booked"
+            ? {
+                startsAt: demoBooking.startsAt.toISOString(),
+                endsAt: demoBooking.endsAt.toISOString(),
+              }
+            : null,
         student: student
           ? {
               id: String(student._id),
@@ -651,7 +669,11 @@ export async function getStats() {
     {
       $group: {
         _id: "$gameId",
-        pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
+        pending: {
+          $sum: {
+            $cond: [{ $in: ["$status", ["pending", "demo_booked"]] }, 1, 0],
+          },
+        },
         accepted: { $sum: { $cond: [{ $eq: ["$status", "accepted"] }, 1, 0] } },
         rejected: { $sum: { $cond: [{ $eq: ["$status", "rejected"] }, 1, 0] } },
       },

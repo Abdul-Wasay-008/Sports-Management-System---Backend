@@ -1,12 +1,19 @@
-import { Schema, Types, model } from "mongoose";
+import { Schema, model } from "mongoose";
+import type { Types } from "mongoose";
 import { STUDENT_GENDERS, SPORTS_WEEK_DEPARTMENTS } from "../constants/sports-week.js";
 
-export type RegistrationStatus = "pending" | "accepted" | "rejected" | "cancelled";
+export type RegistrationStatus =
+  | "demo_booked"
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "cancelled";
 
 export interface RegistrationDocument {
   studentId: Types.ObjectId;
   gameId: Types.ObjectId;
   status: RegistrationStatus;
+  demoBookingId?: Types.ObjectId;
   decisionNote?: string;
   decidedByManagerId?: Types.ObjectId;
   decidedAt?: Date;
@@ -22,9 +29,15 @@ const registrationSchema = new Schema<RegistrationDocument>(
     gameId: { type: Schema.Types.ObjectId, ref: "Game", required: true, index: true },
     status: {
       type: String,
-      enum: ["pending", "accepted", "rejected", "cancelled"],
+      enum: ["demo_booked", "pending", "accepted", "rejected", "cancelled"],
       required: true,
       default: "pending",
+    },
+    demoBookingId: {
+      type: Schema.Types.ObjectId,
+      ref: "DemoBooking",
+      required: false,
+      index: true,
     },
     decisionNote: { type: String, required: false, trim: true },
     decidedByManagerId: { type: Schema.Types.ObjectId, ref: "GameManager", required: false },
@@ -35,9 +48,6 @@ const registrationSchema = new Schema<RegistrationDocument>(
   { timestamps: true },
 );
 
-registrationSchema.index({ studentId: 1, gameId: 1 }, { unique: true });
+registrationSchema.index({ studentId: 1, gameId: 1 });
 
-export const RegistrationModel = model<RegistrationDocument>(
-  "Registration",
-  registrationSchema,
-);
+export const RegistrationModel = model<RegistrationDocument>("Registration", registrationSchema);

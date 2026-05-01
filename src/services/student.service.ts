@@ -13,6 +13,14 @@ import { RuleModel } from "../models/Rule.js";
 import type { UserDocument } from "../models/User.js";
 import { UserModel } from "../models/User.js";
 import { type GameGender, type SportsWeekDepartment } from "../constants/sports-week.js";
+import { env } from "../config/env.js";
+import {
+  getDemoSlotsForWeek,
+  getLatestCooldownEndsAt,
+  parseWeekMondayFromQuery,
+  registerForDemoSession,
+  resolveDemoSchedulingContext,
+} from "./demo-scheduling.service.js";
 import { AppError } from "../utils/errors.js";
 
 void GameManagerModel;
@@ -72,7 +80,9 @@ export async function getStudentDashboard(userId: string) {
     genderCategory: { $in: [student.gender, "mixed"] },
   });
   const myRegistrations = await RegistrationModel.find({ studentId: student._id });
-  const pending = myRegistrations.filter((r) => r.status === "pending").length;
+  const pending = myRegistrations.filter(
+    (r) => r.status === "pending" || r.status === "demo_booked",
+  ).length;
   const accepted = myRegistrations.filter((r) => r.status === "accepted").length;
   const notifications = await NotificationModel.countDocuments({
     studentId: student._id,
@@ -151,10 +161,35 @@ export async function getGameDetails(userId: string, gameId: string) {
   if (!game || !game.isActive) throw new AppError("Game not found.", 404);
   assertEligible(student.gender, game.genderCategory);
 
-  const existingRegistration = await RegistrationModel.findOne({
+  const schedulingCtx = await resolveDemoSchedulingContext(game, student.department);
+  const schedulingConfigured = Boolean(schedulingCtx);
+
+  const activeRegistration = await RegistrationModel.findOne({
     studentId: student._id,
     gameId: game._id,
-  });
+    status: { $in: ["demo_booked", "pending", "accepted"] },
+  })
+    .sort({ createdAt: -1 })
+    .populate("demoBookingId");
+
+  const cooldownEndsAt = await getLatestCooldownEndsAt(student._id, game._id);
+
+  const registrationOpen = game.acceptedRegistrations < game.totalSlots;
+  const slotsFull = !registrationOpen;
+
+  let blockReason: string | null = null;
+  if (slotsFull) blockReason = "slots_full";
+  else if (!schedulingConfigured) blockReason = "no_team_manager";
+  else if (activeRegistration) blockReason = "already_registered";
+  else if (cooldownEndsAt) blockReason = "cooldown";
+
+  const canRegisterForDemo =
+    schedulingConfigured && registrationOpen && !activeRegistration && !cooldownEndsAt;
+
+  const demoBookingDoc = activeRegistration?.demoBookingId as unknown as {
+    startsAt: Date;
+    endsAt: Date;
+  } | null;
 
   return {
     id: String(game._id),
@@ -166,8 +201,26 @@ export async function getGameDetails(userId: string, gameId: string) {
     totalSlots: game.totalSlots,
     acceptedRegistrations: game.acceptedRegistrations,
     availableSlots: Math.max(0, game.totalSlots - game.acceptedRegistrations),
-    registrationOpen: game.acceptedRegistrations < game.totalSlots,
-    registrationStatus: existingRegistration?.status ?? null,
+    registrationOpen,
+    registrationStatus: activeRegistration?.status ?? null,
+    schedulingConfigured,
+    scheduleTimezone: schedulingCtx?.timezone ?? env.demoScheduleTimezone,
+    teamManagerContact: schedulingCtx
+      ? {
+          name: schedulingCtx.teamManagerName,
+          contact: schedulingCtx.teamManagerContact,
+        }
+      : null,
+    cooldownEndsAt: cooldownEndsAt?.toISOString() ?? null,
+    canRegisterForDemo,
+    blockReason,
+    demo:
+      activeRegistration?.status === "demo_booked" && demoBookingDoc
+        ? {
+            startsAt: demoBookingDoc.startsAt.toISOString(),
+            endsAt: demoBookingDoc.endsAt.toISOString(),
+          }
+        : null,
     manager: (() => {
       const manager = game.managerId as unknown as PopulatedManager | null;
       if (!manager) return null;
@@ -184,44 +237,39 @@ export async function getGameDetails(userId: string, gameId: string) {
 }
 
 export async function registerForGame(userId: string, gameId: string) {
-  const student = await requireStudentUser(userId);
+  void userId;
+  void gameId;
+  throw new AppError(
+    "Registration now requires booking a demo slot. Use POST /api/student/games/:id/register-demo with a selected startsAt time.",
+    400,
+  );
+}
 
+export async function getDemoSlotsForGame(userId: string, gameId: string, weekStart?: string) {
+  const student = await requireStudentUser(userId);
   const game = await GameModel.findById(gameId);
   if (!game || !game.isActive) throw new AppError("Game not found.", 404);
   assertEligible(student.gender, game.genderCategory);
 
-  if (game.acceptedRegistrations >= game.totalSlots) {
-    throw new AppError("Registration is closed because all slots are filled.", 400);
+  const ctx = await resolveDemoSchedulingContext(game, student.department);
+  if (!ctx) {
+    throw new AppError(
+      "Demo scheduling is not configured for this game or your department (category or team manager missing).",
+      422,
+    );
   }
 
-  const existing = await RegistrationModel.findOne({ studentId: student._id, gameId: game._id });
-  if (existing) {
-    throw new AppError("You already have a registration request for this game.", 409);
-  }
+  const monday = parseWeekMondayFromQuery(weekStart, ctx.timezone);
+  return getDemoSlotsForWeek(ctx.assignmentId, monday, ctx.timezone);
+}
 
-  const registration = await RegistrationModel.create({
-    studentId: student._id,
-    gameId: game._id,
-    status: "pending",
-    studentDepartment: student.department,
-    studentGender: student.gender,
+export async function registerForDemo(userId: string, gameId: string, startsAt: string) {
+  const student = await requireStudentUser(userId);
+  return registerForDemoSession({
+    student,
+    gameId,
+    startsAtIso: startsAt,
   });
-
-  await NotificationModel.create({
-    studentId: student._id,
-    title: "Registration submitted",
-    message: `Your request for ${game.title} is pending manager approval.`,
-    category: "registration",
-    isRead: false,
-  });
-
-  return {
-    message: "Registration request submitted and pending manager approval.",
-    registration: {
-      id: String(registration._id),
-      status: registration.status,
-    },
-  };
 }
 
 export async function getMyRegistrations(userId: string, filters: StudentQueryFilters = {}) {
@@ -229,6 +277,7 @@ export async function getMyRegistrations(userId: string, filters: StudentQueryFi
 
   const registrations = await RegistrationModel.find({ studentId: student._id })
     .populate("gameId")
+    .populate("demoBookingId")
     .sort({ createdAt: -1 });
 
   return registrations.map((row) => {
@@ -242,20 +291,31 @@ export async function getMyRegistrations(userId: string, filters: StudentQueryFi
     }
     if (filters.gameId && game && String(game._id) !== filters.gameId) return null;
     if (filters.department && filters.department !== student.department) return null;
+    const demoBooking = row.demoBookingId as unknown as {
+      startsAt: Date;
+      endsAt: Date;
+    } | null;
     return {
-    id: String(row._id),
-    status: row.status,
-    decisionNote: row.decisionNote || null,
-    decidedAt: row.decidedAt || null,
-    createdAt: row.createdAt,
-    game: game
-      ? {
-          id: String(game._id),
-          title: game.title,
-          venue: game.venue,
-        }
-      : null,
-  };
+      id: String(row._id),
+      status: row.status,
+      decisionNote: row.decisionNote || null,
+      decidedAt: row.decidedAt || null,
+      createdAt: row.createdAt,
+      demo:
+        row.status === "demo_booked" && demoBooking
+          ? {
+              startsAt: demoBooking.startsAt.toISOString(),
+              endsAt: demoBooking.endsAt.toISOString(),
+            }
+          : null,
+      game: game
+        ? {
+            id: String(game._id),
+            title: game.title,
+            venue: game.venue,
+          }
+        : null,
+    };
   }).filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
@@ -266,9 +326,11 @@ export async function decideRegistration(
 ) {
   const registration = await RegistrationModel.findById(registrationId);
   if (!registration) throw new AppError("Registration not found.", 404);
-  if (registration.status !== "pending") {
-    throw new AppError("Only pending requests can be decided.", 400);
+  if (registration.status !== "pending" && registration.status !== "demo_booked") {
+    throw new AppError("Only registrations awaiting a decision (including booked demos) can be updated.", 400);
   }
+
+  const priorStatus = registration.status;
 
   const game = await GameModel.findById(registration.gameId);
   if (!game) throw new AppError("Game not found for registration.", 404);
@@ -287,10 +349,17 @@ export async function decideRegistration(
     await game.save();
   }
 
+  const message =
+    priorStatus === "demo_booked"
+      ? status === "accepted"
+        ? `After your demo, you were accepted for ${game.title}.`
+        : `After your demo, you were not selected for ${game.title}. If rejected, you may apply again after the 10-day cooldown.`
+      : `Your registration for ${game.title} was ${status}.`;
+
   await NotificationModel.create({
     studentId: registration.studentId,
     title: `Registration ${status}`,
-    message: `Your registration for ${game.title} was ${status}.`,
+    message,
     category: "registration",
     isRead: false,
   });

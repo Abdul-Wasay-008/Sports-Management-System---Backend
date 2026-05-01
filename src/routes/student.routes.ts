@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   committeeHandler,
   dashboardHandler,
+  demoSlotsHandler,
   departmentTeamManagersHandler,
   gameDetailsHandler,
   gameCategoriesHandler,
@@ -9,6 +10,7 @@ import {
   gamesHandler,
   myRegistrationsHandler,
   notificationsHandler,
+  registerDemoHandler,
   registerGameHandler,
   registrationDecisionHandler,
   resultsHandler,
@@ -24,6 +26,8 @@ studentRouter.use(requireAuth);
 
 studentRouter.get("/dashboard", dashboardHandler);
 studentRouter.get("/games", gamesHandler);
+studentRouter.get("/games/:id/demo-slots", demoSlotsHandler);
+studentRouter.post("/games/:id/register-demo", registerDemoHandler);
 studentRouter.get("/games/:id", gameDetailsHandler);
 studentRouter.post("/games/:id/register", registerGameHandler);
 studentRouter.get("/registrations", myRegistrationsHandler);
