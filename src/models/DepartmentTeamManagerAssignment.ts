@@ -1,16 +1,34 @@
 import { Schema, Types, model } from "mongoose";
 import { SPORTS_WEEK_DEPARTMENTS } from "../constants/sports-week.js";
 
+export interface DepartmentTeamManagerMember {
+  name: string;
+  contact?: string;
+  linkedUserId?: Types.ObjectId;
+}
+
 export interface DepartmentTeamManagerAssignmentDocument {
   gameCategoryId: Types.ObjectId;
   department: (typeof SPORTS_WEEK_DEPARTMENTS)[number];
   managerName: string;
   contact?: string;
-  linkedUserId?: Types.ObjectId;
-  managerEmail?: string;
+  members: DepartmentTeamManagerMember[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+const departmentTeamManagerMemberSchema = new Schema<DepartmentTeamManagerMember>(
+  {
+    name: { type: String, required: true, trim: true },
+    contact: { type: String, required: false, trim: true },
+    linkedUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: false,
+    },
+  },
+  { _id: false },
+);
 
 const departmentTeamManagerAssignmentSchema = new Schema<DepartmentTeamManagerAssignmentDocument>(
   {
@@ -18,18 +36,17 @@ const departmentTeamManagerAssignmentSchema = new Schema<DepartmentTeamManagerAs
     department: { type: String, enum: SPORTS_WEEK_DEPARTMENTS, required: true },
     managerName: { type: String, required: true, trim: true },
     contact: { type: String, required: false, trim: true },
-    linkedUserId: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
-      required: false,
-      index: true,
+    members: {
+      type: [departmentTeamManagerMemberSchema],
+      default: [],
+      required: true,
     },
-    managerEmail: { type: String, required: false, lowercase: true, trim: true, index: true },
   },
   { timestamps: true },
 );
 
 departmentTeamManagerAssignmentSchema.index({ gameCategoryId: 1, department: 1 }, { unique: true });
+departmentTeamManagerAssignmentSchema.index({ "members.linkedUserId": 1 });
 
 export const DepartmentTeamManagerAssignmentModel = model<DepartmentTeamManagerAssignmentDocument>(
   "DepartmentTeamManagerAssignment",

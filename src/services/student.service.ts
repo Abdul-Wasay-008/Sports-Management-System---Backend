@@ -212,6 +212,7 @@ export async function getGameDetails(userId: string, gameId: string) {
           contact: schedulingCtx.teamManagerContact,
         }
       : null,
+    teamManagerMembers: schedulingCtx?.members ?? [],
     cooldownEndsAt: cooldownEndsAt?.toISOString() ?? null,
     canRegisterForDemo,
     blockReason,
@@ -397,10 +398,10 @@ export async function decideRegistrationAsActor(
     const assignment = await DepartmentTeamManagerAssignmentModel.findById(
       booking.departmentTeamManagerAssignmentId,
     ).lean();
-    if (
-      !assignment?.linkedUserId ||
-      String(assignment.linkedUserId) !== actor.userId
-    ) {
+    const isLinkedMember = (assignment?.members ?? []).some(
+      (m) => m.linkedUserId && String(m.linkedUserId) === actor.userId,
+    );
+    if (!isLinkedMember) {
       throw new AppError("You are not responsible for this demo booking.", 403);
     }
     const registration = await RegistrationModel.findById(registrationId).lean();
@@ -557,16 +558,18 @@ export async function getDepartmentTeamManagers(userId: string, filters: Student
     if (!category?.gender || (category.gender !== "mixed" && category.gender !== allowedGender)) {
       return null;
     }
-    const email = row.managerEmail?.trim() || null;
     return {
       _id: String(row._id),
       department: row.department,
       managerName: row.managerName,
       contact: row.contact ?? null,
-      email,
       gameCategoryId: category ? String(category._id) : null,
       gameCategoryName: category?.name ?? "",
       gameCategoryGender: category?.gender ?? null,
+      members: (row.members ?? []).map((m) => ({
+        name: m.name,
+        contact: m.contact ?? null,
+      })),
     };
   }).filter((row): row is NonNullable<typeof row> => Boolean(row));
 }

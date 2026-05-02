@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { Types } from "mongoose";
 import { env } from "../config/env.js";
 import seedData from "../data/sports-week/seed/sports-week-2025.seed.json" with { type: "json" };
 import { connectDatabase, disconnectDatabase } from "../lib/db.js";
@@ -18,10 +19,26 @@ import { SportModel } from "../models/Sport.js";
 import { TeamManagerNotificationModel } from "../models/TeamManagerNotification.js";
 import { UserModel } from "../models/User.js";
 import { SPORTS_WEEK_DEPARTMENTS, normalizeDepartment } from "../constants/sports-week.js";
+import { deriveTeamManagerEmail, deriveTeamManagerEmailKey } from "../utils/team-manager-email.js";
 
 const RESET_ARG = process.argv.includes("--reset");
 const TEAM_MANAGER_PASSWORD = "TeamManager_123";
 const TM_PASSWORD_ROUNDS = 12;
+
+async function unsetNullRegistrationNumbers() {
+  /**
+   * Some legacy non-student users (e.g. the bootstrap admin) may have
+   * `registrationNumber: null` set explicitly. The schema's sparse unique
+   * index excludes documents that lack the field but still includes those
+   * with an explicit `null`, which causes E11000 when more than one such
+   * document exists. We unset the field for any non-student docs that
+   * have a null value so the sparse index works correctly.
+   */
+  await UserModel.collection.updateMany(
+    { role: { $ne: "student" }, registrationNumber: null },
+    { $unset: { registrationNumber: "" } },
+  );
+}
 
 async function resetSportsWeekData() {
   console.log("[seed] --reset: clearing Sports Week collections (users/admin preserved)…");
@@ -39,22 +56,6 @@ async function resetSportsWeekData() {
   await CommitteeMemberModel.deleteMany({ committeeType: "core" });
   await RuleModel.deleteMany({});
   console.log("[seed] --reset: cleared.");
-}
-
-function normalizeTeamManagerEmail(raw: string): string {
-  const trimmed = raw.trim().toLowerCase();
-  const at = trimmed.indexOf("@");
-  if (at === -1) return trimmed.replace(/[^a-z0-9]/g, "");
-  const local = trimmed.slice(0, at).replace(/[^a-z0-9]/g, "");
-  const domain = trimmed.slice(at + 1);
-  return `${local}@${domain}`;
-}
-
-function departmentSlug(department: string): string {
-  return department
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 type SeedCategory = {
@@ -83,17 +84,15 @@ type SeedManager = {
   phone?: string;
 };
 
-type SeedDepartmentManager = {
-  categorySlug: string;
-  department: string;
-  managerName: string;
+type SeedDepartmentManagerMember = {
+  name: string;
   contact?: string;
 };
 
-type SeedTeamManagerRosterEntry = {
-  email: string;
-  name: string;
-  assignments: Array<{ department: string; categorySlug: string }>;
+type SeedDepartmentManager = {
+  categorySlug: string;
+  department: string;
+  members: SeedDepartmentManagerMember[];
 };
 
 type SportsWeekSeed = {
@@ -101,7 +100,6 @@ type SportsWeekSeed = {
   coreCommittee: SeedCommittee[];
   gameManagers: SeedManager[];
   departmentTeamManagers: SeedDepartmentManager[];
-  teamManagerRoster?: SeedTeamManagerRosterEntry[];
 };
 
 type GameSeedDetails = {
@@ -276,6 +274,8 @@ async function run() {
   const typedSeed = seedData as SportsWeekSeed;
   await connectDatabase(env.mongodbUri);
 
+  await unsetNullRegistrationNumbers();
+
   if (RESET_ARG) {
     await resetSportsWeekData();
   }
@@ -405,6 +405,16 @@ async function run() {
     );
   }
 
+  /**
+   * First pass: build per-cell `members` arrays (without linkedUserId yet) and ensure
+   * every (department × category) cell exists. Cells with zero named members in the
+   * source manual are intentionally inserted with an empty members[]; downstream the
+   * demo-booking flow blocks bookings for any such cell so no orphan can register.
+   */
+  type CleanedMember = { name: string; contact?: string };
+  const cellMembersByKey = new Map<string, CleanedMember[]>();
+  const cellKey = (categoryId: string, department: string) => `${categoryId}::${department}`;
+
   for (const row of typedSeed.departmentTeamManagers) {
     const categoryId = categoryBySlug.get(row.categorySlug);
     const department = normalizeDepartment(row.department);
@@ -413,94 +423,75 @@ async function run() {
       continue;
     }
 
-    await DepartmentTeamManagerAssignmentModel.findOneAndUpdate(
-      { gameCategoryId: categoryId, department },
-      {
-        gameCategoryId: categoryId,
-        department,
-        managerName: row.managerName,
-        contact: row.contact?.trim() || undefined,
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
+    const cleanedMembers: CleanedMember[] = (row.members ?? [])
+      .map((m) => ({
+        name: m.name?.trim() ?? "",
+        contact: m.contact?.trim() || undefined,
+      }))
+      .filter((m) => m.name.length > 0);
+
+    cellMembersByKey.set(cellKey(categoryId, department), cleanedMembers);
   }
 
-  /** Required for demo scheduling: one departmental team manager row per (department × category). */
+  /** Required for demo scheduling: one row per (department × category). */
   for (const department of SPORTS_WEEK_DEPARTMENTS) {
     for (const categoryId of categoryBySlug.values()) {
+      const members = cellMembersByKey.get(cellKey(categoryId, department)) ?? [];
+      const first = members[0];
+      const managerName = first?.name ?? `${department} — Team Manager`;
+      const contact =
+        first?.contact ??
+        (members.length === 0
+          ? "No team manager assigned for this game in your department yet — bookings are disabled until one is added."
+          : undefined);
+
       await DepartmentTeamManagerAssignmentModel.findOneAndUpdate(
         { gameCategoryId: categoryId, department },
         {
-          $setOnInsert: {
-            managerName: `${department} — Team Manager`,
-            contact:
-              "Sports Week seed: contact your department office for demo coordination (replace with a named manager when known).",
+          $set: {
+            gameCategoryId: categoryId,
+            department,
+            members,
+            managerName,
+            contact,
           },
         },
-        { upsert: true },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
       );
     }
   }
 
+  /**
+   * Second pass: derive one User per unique person across ALL members[].name,
+   * dedupe by lowercase email key (the User schema lowercases email on save), then
+   * stamp `members[i].linkedUserId` on every cell that contains that person.
+   */
   const passwordHash = await bcrypt.hash(TEAM_MANAGER_PASSWORD, TM_PASSWORD_ROUNDS);
 
-  for (const entry of typedSeed.teamManagerRoster ?? []) {
-    const email = normalizeTeamManagerEmail(entry.email);
-    const name = entry.name.trim();
-    if (!email || !name) continue;
+  type DerivedTm = { displayEmail: string; displayName: string };
+  const derivedByKey = new Map<string, DerivedTm>();
 
-    const user = await UserModel.findOneAndUpdate(
-      { email },
-      {
-        $set: {
-          email,
-          name,
-          passwordHash,
-          role: "team_manager",
-          emailVerified: true,
-          emailVerifiedAt: new Date(),
-          status: "active",
-        },
-        $unset: { registrationNumber: "", gender: "", department: "" },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
-
-    const tmId = user._id;
-
-    for (const a of entry.assignments ?? []) {
-      const categoryId = categoryBySlug.get(a.categorySlug);
-      const department = normalizeDepartment(a.department);
-      if (!categoryId || !department) continue;
-
-      await DepartmentTeamManagerAssignmentModel.updateMany(
-        { gameCategoryId: categoryId, department },
-        {
-          $set: {
-            linkedUserId: tmId,
-            managerEmail: email,
-            managerName: name,
-          },
-        },
-      );
+  for (const row of typedSeed.departmentTeamManagers) {
+    for (const member of row.members ?? []) {
+      const name = member.name?.trim();
+      if (!name) continue;
+      const displayEmail = deriveTeamManagerEmail(name);
+      const key = displayEmail.toLowerCase();
+      if (key === "@cust.pk") continue;
+      if (!derivedByKey.has(key)) {
+        derivedByKey.set(key, { displayEmail, displayName: name });
+      }
     }
   }
 
-  for (const department of SPORTS_WEEK_DEPARTMENTS) {
-    const orphans = await DepartmentTeamManagerAssignmentModel.countDocuments({
-      department,
-      $or: [{ linkedUserId: { $exists: false } }, { linkedUserId: null }],
-    });
-    if (orphans === 0) continue;
-
-    const slug = departmentSlug(department);
-    const leadEmail = `tm-${slug}-lead@cust.pk`;
-    const leadUser = await UserModel.findOneAndUpdate(
-      { email: leadEmail },
+  const userIdByEmailKey = new Map<string, string>();
+  for (const [key, info] of derivedByKey.entries()) {
+    const user = await UserModel.findOneAndUpdate(
+      { email: key },
       {
         $set: {
-          email: leadEmail,
-          name: `${department} — Lead Team Manager`,
+          email: key,
+          name: info.displayName,
           passwordHash,
           role: "team_manager",
           emailVerified: true,
@@ -511,20 +502,43 @@ async function run() {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
+    userIdByEmailKey.set(key, String(user._id));
+  }
 
-    await DepartmentTeamManagerAssignmentModel.updateMany(
-      {
-        department,
-        $or: [{ linkedUserId: { $exists: false } }, { linkedUserId: null }],
-      },
-      {
-        $set: {
-          linkedUserId: leadUser._id,
-          managerEmail: leadEmail,
-        },
-      },
+  for (const row of typedSeed.departmentTeamManagers) {
+    const categoryId = categoryBySlug.get(row.categorySlug);
+    const department = normalizeDepartment(row.department);
+    if (!categoryId || !department) continue;
+
+    const cleanedMembers = (row.members ?? [])
+      .map((m) => ({
+        name: m.name?.trim() ?? "",
+        contact: m.contact?.trim() || undefined,
+      }))
+      .filter((m) => m.name.length > 0);
+
+    if (cleanedMembers.length === 0) continue;
+
+    const linkedMembers = cleanedMembers.map((m) => {
+      const key = deriveTeamManagerEmailKey(m.name);
+      const userId = userIdByEmailKey.get(key);
+      return {
+        name: m.name,
+        contact: m.contact,
+        linkedUserId: userId ? new Types.ObjectId(userId) : undefined,
+      };
+    });
+
+    await DepartmentTeamManagerAssignmentModel.updateOne(
+      { gameCategoryId: categoryId, department },
+      { $set: { members: linkedMembers } },
     );
   }
+
+  const linkedTeamManagerUsers = derivedByKey.size;
+  const cellsWithoutTeamManager = await DepartmentTeamManagerAssignmentModel.countDocuments({
+    "members.linkedUserId": { $exists: false },
+  });
 
   const coverage = {
     sports: await SportModel.countDocuments(),
@@ -535,6 +549,8 @@ async function run() {
     gameManagers: await GameManagerModel.countDocuments(),
     gameManagerAssignments: await GameManagerAssignmentModel.countDocuments(),
     departmentTeamManagerAssignments: await DepartmentTeamManagerAssignmentModel.countDocuments(),
+    cellsWithoutTeamManager,
+    teamManagerUsers: linkedTeamManagerUsers,
     expectedDepartments: SPORTS_WEEK_DEPARTMENTS.length,
     skippedManagerAssignments,
     skippedDepartmentTeamManagers,

@@ -1,12 +1,43 @@
 import { Types } from "mongoose";
 import { DemoBookingModel } from "../models/DemoBooking.js";
 import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamManagerAssignment.js";
-import { GameModel } from "../models/Game.js";
-import { RegistrationModel } from "../models/Registration.js";
+import { RegistrationModel, type RegistrationStatus } from "../models/Registration.js";
 import { TeamManagerNotificationModel } from "../models/TeamManagerNotification.js";
 import { UserModel } from "../models/User.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/errors.js";
+
+export type DemoQueueStatusFilter = "pending" | "accepted" | "rejected" | "all";
+
+const VALID_STATUS_FILTERS: ReadonlyArray<DemoQueueStatusFilter> = [
+  "pending",
+  "accepted",
+  "rejected",
+  "all",
+];
+
+export function parseDemoQueueStatusFilter(value: unknown): DemoQueueStatusFilter {
+  if (typeof value !== "string" || !value.trim()) return "pending";
+  const lowered = value.trim().toLowerCase();
+  if ((VALID_STATUS_FILTERS as readonly string[]).includes(lowered)) {
+    return lowered as DemoQueueStatusFilter;
+  }
+  throw new AppError("Invalid status filter. Use pending, accepted, rejected, or all.", 400);
+}
+
+function registrationStatusesFor(filter: DemoQueueStatusFilter): RegistrationStatus[] {
+  switch (filter) {
+    case "pending":
+      return ["demo_booked"];
+    case "accepted":
+      return ["accepted"];
+    case "rejected":
+      return ["rejected"];
+    case "all":
+    default:
+      return ["demo_booked", "accepted", "rejected"];
+  }
+}
 
 export async function requireTeamManagerUser(userId: string) {
   const user = await UserModel.findById(userId).select("_id role status").lean();
@@ -16,14 +47,38 @@ export async function requireTeamManagerUser(userId: string) {
   return user;
 }
 
+async function loadAssignmentsForTeamManager(tmOid: Types.ObjectId) {
+  const assignments = await DepartmentTeamManagerAssignmentModel.find({
+    "members.linkedUserId": tmOid,
+  })
+    .select("_id department gameCategoryId")
+    .populate("gameCategoryId", "name slug gender")
+    .lean();
+
+  return assignments.map((a) => {
+    const category = a.gameCategoryId as unknown as {
+      _id: Types.ObjectId;
+      name: string;
+      slug: string;
+      gender?: "male" | "female" | "mixed";
+    } | null;
+    return {
+      assignmentId: a._id,
+      department: a.department,
+      categoryId: category?._id ?? null,
+      categoryName: category?.name ?? "",
+      categorySlug: category?.slug ?? "",
+      categoryGender: category?.gender ?? null,
+    };
+  });
+}
+
 export async function getTeamManagerDashboard(tmUserId: string) {
   await requireTeamManagerUser(tmUserId);
   const tmOid = new Types.ObjectId(tmUserId);
 
-  const assignmentIds = await DepartmentTeamManagerAssignmentModel.find({ linkedUserId: tmOid })
-    .select("_id")
-    .lean();
-  const ids = assignmentIds.map((a) => a._id);
+  const assignments = await loadAssignmentsForTeamManager(tmOid);
+  const ids = assignments.map((a) => a.assignmentId);
 
   let pendingDemoCount = 0;
   if (ids.length) {
@@ -56,26 +111,37 @@ export async function getTeamManagerDashboard(tmUserId: string) {
     summary: {
       pendingDemoApprovals: pendingDemoCount,
       unreadNotifications,
+      totalAssignments: assignments.length,
     },
+    assignments: assignments.map((a) => ({
+      department: a.department,
+      categoryName: a.categoryName,
+      categorySlug: a.categorySlug,
+      categoryGender: a.categoryGender,
+    })),
     scheduleTimezone: env.demoScheduleTimezone,
   };
 }
 
-export async function listDemoQueue(tmUserId: string) {
+export async function listDemoQueue(tmUserId: string, statusFilter: DemoQueueStatusFilter = "pending") {
   await requireTeamManagerUser(tmUserId);
   const tmOid = new Types.ObjectId(tmUserId);
 
-  const assignmentIds = await DepartmentTeamManagerAssignmentModel.find({ linkedUserId: tmOid })
-    .select("_id department")
-    .lean();
-  const ids = assignmentIds.map((a) => a._id);
+  const assignments = await loadAssignmentsForTeamManager(tmOid);
+  const ids = assignments.map((a) => a.assignmentId);
   const deptByAssignmentId = new Map(
-    assignmentIds.map((a) => [String(a._id), a.department]),
+    assignments.map((a) => [String(a.assignmentId), a.department]),
   );
 
   if (!ids.length) {
-    return { queue: [] as Array<Record<string, unknown>>, scheduleTimezone: env.demoScheduleTimezone };
+    return {
+      queue: [] as Array<Record<string, unknown>>,
+      scheduleTimezone: env.demoScheduleTimezone,
+      statusFilter,
+    };
   }
+
+  const allowedStatuses = registrationStatusesFor(statusFilter);
 
   const bookings = await DemoBookingModel.find({
     departmentTeamManagerAssignmentId: { $in: ids },
@@ -88,8 +154,13 @@ export async function listDemoQueue(tmUserId: string) {
 
   const queue = bookings
     .map((b) => {
-      const reg = b.registrationId as unknown as { _id: Types.ObjectId; status: string } | null;
-      if (!reg || reg.status !== "demo_booked") return null;
+      const reg = b.registrationId as unknown as {
+        _id: Types.ObjectId;
+        status: RegistrationStatus;
+        decisionNote?: string;
+        decidedAt?: Date;
+      } | null;
+      if (!reg || !allowedStatuses.includes(reg.status)) return null;
       const student = b.studentId as unknown as {
         _id: Types.ObjectId;
         name: string;
@@ -107,6 +178,9 @@ export async function listDemoQueue(tmUserId: string) {
       return {
         demoBookingId: String(b._id),
         registrationId: String(reg._id),
+        registrationStatus: reg.status,
+        decisionNote: reg.decisionNote ?? null,
+        decidedAt: reg.decidedAt ? reg.decidedAt.toISOString() : null,
         assignmentDepartment:
           deptByAssignmentId.get(String(b.departmentTeamManagerAssignmentId)) ?? "",
         startsAt: b.startsAt.toISOString(),
@@ -133,7 +207,17 @@ export async function listDemoQueue(tmUserId: string) {
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
 
-  return { queue, scheduleTimezone: env.demoScheduleTimezone };
+  /** Newest first when looking at decided history; chronological when looking at upcoming pending. */
+  const ordered =
+    statusFilter === "pending"
+      ? queue
+      : queue.slice().sort((a, b) => {
+          const ad = a.decidedAt ? new Date(a.decidedAt).getTime() : 0;
+          const bd = b.decidedAt ? new Date(b.decidedAt).getTime() : 0;
+          return bd - ad;
+        });
+
+  return { queue: ordered, scheduleTimezone: env.demoScheduleTimezone, statusFilter };
 }
 
 export async function listTeamManagerNotifications(tmUserId: string) {

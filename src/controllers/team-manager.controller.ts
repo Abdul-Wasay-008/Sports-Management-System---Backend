@@ -6,6 +6,7 @@ import {
   listDemoQueue,
   listTeamManagerNotifications,
   markTeamManagerNotificationRead,
+  parseDemoQueueStatusFilter,
 } from "../services/team-manager.service.js";
 import { AppError } from "../utils/errors.js";
 
@@ -35,7 +36,8 @@ export async function teamManagerDashboardHandler(req: AuthenticatedRequest, res
 
 export async function teamManagerDemoQueueHandler(req: AuthenticatedRequest, res: Response) {
   try {
-    const data = await listDemoQueue(requireUserId(req));
+    const statusFilter = parseDemoQueueStatusFilter(req.query.status);
+    const data = await listDemoQueue(requireUserId(req), statusFilter);
     return res.status(200).json(data);
   } catch (err) {
     return handleError(res, err);

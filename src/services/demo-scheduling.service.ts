@@ -25,11 +25,17 @@ function isDuplicateKeyError(err: unknown): boolean {
   );
 }
 
+export type DemoSchedulingContextMember = {
+  name: string;
+  contact: string | null;
+};
+
 export type DemoSchedulingContext = {
   timezone: string;
   assignmentId: Types.ObjectId;
   teamManagerName: string;
   teamManagerContact: string | null;
+  members: DemoSchedulingContextMember[];
 };
 
 function mondayStartOfWeekContaining(dt: DateTime): DateTime {
@@ -87,11 +93,31 @@ export async function resolveDemoSchedulingContext(
 
   if (!assignment) return null;
 
+  const rawMembers = Array.isArray(assignment.members) ? assignment.members : [];
+  const members: DemoSchedulingContextMember[] = rawMembers
+    .map((m) => ({
+      name: (m.name ?? "").trim(),
+      contact: m.contact?.trim() ? m.contact.trim() : null,
+    }))
+    .filter((m) => m.name.length > 0);
+
+  /**
+   * Demo bookings are only allowed if at least one named member of this cell has
+   * a linked team-manager User account who can later accept/reject. Cells that
+   * are present in the manual but unstaffed (no `members[]`) or staffed only by
+   * names that did not produce a User (shouldn't happen via the seed, but guard
+   * anyway) are reported as "not configured" so the UI hides the booking button
+   * and the booking endpoint returns a clear error.
+   */
+  const hasLinkedMember = rawMembers.some((m) => Boolean(m.linkedUserId));
+  if (!hasLinkedMember) return null;
+
   return {
     timezone: env.demoScheduleTimezone,
     assignmentId: assignment._id,
     teamManagerName: assignment.managerName,
     teamManagerContact: assignment.contact?.trim() ? assignment.contact.trim() : null,
+    members,
   };
 }
 
@@ -302,15 +328,21 @@ export async function registerForDemoSession(params: {
   if (createdBooking) {
     try {
       const assignmentDoc = await DepartmentTeamManagerAssignmentModel.findById(ctx.assignmentId).lean();
-      if (assignmentDoc?.linkedUserId) {
-        await TeamManagerNotificationModel.create({
-          teamManagerUserId: assignmentDoc.linkedUserId,
-          title: "New demo request",
-          message: `${student.name} (${student.department}) booked a demo for ${game.title} on ${slotLabel} (${ctx.timezone}).`,
-          registrationId: registration._id,
-          demoBookingId: createdBooking._id,
-          isRead: false,
-        });
+      const recipients = (assignmentDoc?.members ?? [])
+        .map((m) => m.linkedUserId)
+        .filter((id): id is Types.ObjectId => Boolean(id));
+
+      if (recipients.length > 0) {
+        await TeamManagerNotificationModel.insertMany(
+          recipients.map((teamManagerUserId) => ({
+            teamManagerUserId,
+            title: "New demo request",
+            message: `${student.name} (${student.department}) booked a demo for ${game.title} on ${slotLabel} (${ctx.timezone}).`,
+            registrationId: registration._id,
+            demoBookingId: createdBooking!._id,
+            isRead: false,
+          })),
+        );
       }
     } catch (tmNotifyErr) {
       console.error("[demo-booking] Team manager notification failed:", tmNotifyErr);
