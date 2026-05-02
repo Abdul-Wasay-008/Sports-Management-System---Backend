@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { env } from "../config/env.js";
 import seedData from "../data/sports-week/seed/sports-week-2025.seed.json" with { type: "json" };
 import { connectDatabase, disconnectDatabase } from "../lib/db.js";
@@ -14,9 +15,13 @@ import { RegistrationModel } from "../models/Registration.js";
 import { ResultModel } from "../models/Result.js";
 import { RuleModel } from "../models/Rule.js";
 import { SportModel } from "../models/Sport.js";
+import { TeamManagerNotificationModel } from "../models/TeamManagerNotification.js";
+import { UserModel } from "../models/User.js";
 import { SPORTS_WEEK_DEPARTMENTS, normalizeDepartment } from "../constants/sports-week.js";
 
 const RESET_ARG = process.argv.includes("--reset");
+const TEAM_MANAGER_PASSWORD = "TeamManager_123";
+const TM_PASSWORD_ROUNDS = 12;
 
 async function resetSportsWeekData() {
   console.log("[seed] --reset: clearing Sports Week collections (users/admin preserved)…");
@@ -24,6 +29,8 @@ async function resetSportsWeekData() {
   await RegistrationModel.deleteMany({});
   await ResultModel.deleteMany({});
   await NotificationModel.deleteMany({});
+  await TeamManagerNotificationModel.deleteMany({});
+  await UserModel.deleteMany({ role: "team_manager" });
   await GameManagerAssignmentModel.deleteMany({});
   await DepartmentTeamManagerAssignmentModel.deleteMany({});
   await GameModel.deleteMany({});
@@ -32,6 +39,22 @@ async function resetSportsWeekData() {
   await CommitteeMemberModel.deleteMany({ committeeType: "core" });
   await RuleModel.deleteMany({});
   console.log("[seed] --reset: cleared.");
+}
+
+function normalizeTeamManagerEmail(raw: string): string {
+  const trimmed = raw.trim().toLowerCase();
+  const at = trimmed.indexOf("@");
+  if (at === -1) return trimmed.replace(/[^a-z0-9]/g, "");
+  const local = trimmed.slice(0, at).replace(/[^a-z0-9]/g, "");
+  const domain = trimmed.slice(at + 1);
+  return `${local}@${domain}`;
+}
+
+function departmentSlug(department: string): string {
+  return department
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 type SeedCategory = {
@@ -67,11 +90,18 @@ type SeedDepartmentManager = {
   contact?: string;
 };
 
+type SeedTeamManagerRosterEntry = {
+  email: string;
+  name: string;
+  assignments: Array<{ department: string; categorySlug: string }>;
+};
+
 type SportsWeekSeed = {
   sports: SeedSport[];
   coreCommittee: SeedCommittee[];
   gameManagers: SeedManager[];
   departmentTeamManagers: SeedDepartmentManager[];
+  teamManagerRoster?: SeedTeamManagerRosterEntry[];
 };
 
 type GameSeedDetails = {
@@ -410,6 +440,90 @@ async function run() {
         { upsert: true },
       );
     }
+  }
+
+  const passwordHash = await bcrypt.hash(TEAM_MANAGER_PASSWORD, TM_PASSWORD_ROUNDS);
+
+  for (const entry of typedSeed.teamManagerRoster ?? []) {
+    const email = normalizeTeamManagerEmail(entry.email);
+    const name = entry.name.trim();
+    if (!email || !name) continue;
+
+    const user = await UserModel.findOneAndUpdate(
+      { email },
+      {
+        $set: {
+          email,
+          name,
+          passwordHash,
+          role: "team_manager",
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+          status: "active",
+        },
+        $unset: { registrationNumber: "", gender: "", department: "" },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    const tmId = user._id;
+
+    for (const a of entry.assignments ?? []) {
+      const categoryId = categoryBySlug.get(a.categorySlug);
+      const department = normalizeDepartment(a.department);
+      if (!categoryId || !department) continue;
+
+      await DepartmentTeamManagerAssignmentModel.updateMany(
+        { gameCategoryId: categoryId, department },
+        {
+          $set: {
+            linkedUserId: tmId,
+            managerEmail: email,
+            managerName: name,
+          },
+        },
+      );
+    }
+  }
+
+  for (const department of SPORTS_WEEK_DEPARTMENTS) {
+    const orphans = await DepartmentTeamManagerAssignmentModel.countDocuments({
+      department,
+      $or: [{ linkedUserId: { $exists: false } }, { linkedUserId: null }],
+    });
+    if (orphans === 0) continue;
+
+    const slug = departmentSlug(department);
+    const leadEmail = `tm-${slug}-lead@cust.pk`;
+    const leadUser = await UserModel.findOneAndUpdate(
+      { email: leadEmail },
+      {
+        $set: {
+          email: leadEmail,
+          name: `${department} — Lead Team Manager`,
+          passwordHash,
+          role: "team_manager",
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+          status: "active",
+        },
+        $unset: { registrationNumber: "", gender: "", department: "" },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    await DepartmentTeamManagerAssignmentModel.updateMany(
+      {
+        department,
+        $or: [{ linkedUserId: { $exists: false } }, { linkedUserId: null }],
+      },
+      {
+        $set: {
+          linkedUserId: leadUser._id,
+          managerEmail: leadEmail,
+        },
+      },
+    );
   }
 
   const coverage = {

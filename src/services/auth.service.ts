@@ -8,6 +8,8 @@ import { AppError } from "../utils/errors.js";
 import { signAuthToken } from "../utils/jwt.js";
 import {
   assertCustEmail,
+  canonicalCustEmail,
+  isCustEmail,
   normalizeEmail,
   sanitizeDepartment,
   sanitizeRegistrationNumber,
@@ -103,11 +105,11 @@ export function toPublicUser(user: {
   registrationNumber?: string;
   gender?: "male" | "female";
   department?: string;
-  role: "student" | "admin";
+  role: "student" | "admin" | "team_manager";
   status: "active" | "inactive" | "suspended";
   emailVerified: boolean;
 }) {
-  if (user.role === "admin") {
+  if (user.role === "admin" || user.role === "team_manager") {
     return {
       id: String(user._id),
       name: user.name,
@@ -298,7 +300,13 @@ export async function resendVerificationOtp(input: ResendOtpInput) {
 export async function loginStudent(input: LoginInput) {
   const email = normalizeEmail(input.email);
 
-  const user = await UserModel.findOne({ email });
+  let user = await UserModel.findOne({ email });
+  if (!user && isCustEmail(email)) {
+    const canonical = canonicalCustEmail(email);
+    if (canonical !== email) {
+      user = await UserModel.findOne({ email: canonical });
+    }
+  }
   if (!user) {
     throw new AppError("Invalid email or password.", 401);
   }
@@ -307,12 +315,14 @@ export async function loginStudent(input: LoginInput) {
     assertCustEmail(email);
   }
 
+  const privilegedLoginRoles = user.role === "admin" || user.role === "team_manager";
+
   const passwordMatches = await bcrypt.compare(input.password, user.passwordHash);
   if (!passwordMatches) {
     throw new AppError("Invalid email or password.", 401);
   }
 
-  if (user.role !== "admin" && !user.emailVerified) {
+  if (!privilegedLoginRoles && !user.emailVerified) {
     throw new AppError("Please verify your email before signing in.", 403);
   }
 

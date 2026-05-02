@@ -12,6 +12,20 @@ export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+/**
+ * For @cust.pk addresses, matches seed team-manager normalization: strip non-alphanumeric
+ * characters from the local part so login finds accounts created with roster emails like
+ * `anam-naseem@cust.pk` stored as `anamnaseem@cust.pk`.
+ */
+export function canonicalCustEmail(email: string) {
+  const trimmed = normalizeEmail(email);
+  const at = trimmed.indexOf("@");
+  if (at === -1) return trimmed.replace(/[^a-z0-9]/g, "");
+  const local = trimmed.slice(0, at).replace(/[^a-z0-9]/g, "");
+  const domain = trimmed.slice(at + 1);
+  return `${local}@${domain}`;
+}
+
 export function isCustEmail(email: string) {
   return CUST_EMAIL_REGEX.test(normalizeEmail(email));
 }

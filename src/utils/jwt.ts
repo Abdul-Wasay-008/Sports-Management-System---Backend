@@ -5,7 +5,7 @@ import { AppError } from "./errors.js";
 interface AuthTokenPayload {
   sub: string;
   email: string;
-  role: "student" | "admin";
+  role: "student" | "admin" | "team_manager";
 }
 
 function getJwtSecret() {

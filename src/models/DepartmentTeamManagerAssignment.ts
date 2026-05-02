@@ -6,6 +6,8 @@ export interface DepartmentTeamManagerAssignmentDocument {
   department: (typeof SPORTS_WEEK_DEPARTMENTS)[number];
   managerName: string;
   contact?: string;
+  linkedUserId?: Types.ObjectId;
+  managerEmail?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -16,6 +18,13 @@ const departmentTeamManagerAssignmentSchema = new Schema<DepartmentTeamManagerAs
     department: { type: String, enum: SPORTS_WEEK_DEPARTMENTS, required: true },
     managerName: { type: String, required: true, trim: true },
     contact: { type: String, required: false, trim: true },
+    linkedUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: false,
+      index: true,
+    },
+    managerEmail: { type: String, required: false, lowercase: true, trim: true, index: true },
   },
   { timestamps: true },
 );

@@ -6,7 +6,7 @@ import {
 } from "../constants/sports-week.js";
 
 export type UserStatus = "active" | "inactive" | "suspended";
-export type UserRole = "student" | "admin";
+export type UserRole = "student" | "admin" | "team_manager";
 export type UserGender = (typeof STUDENT_GENDERS)[number];
 
 export interface UserDocument {
@@ -39,7 +39,12 @@ const userSchema = new Schema<UserDocument>(
     gender: { type: String, enum: STUDENT_GENDERS, required: false },
     department: { type: String, enum: SPORTS_WEEK_DEPARTMENTS, required: false, trim: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["student", "admin"], default: "student", required: true },
+    role: {
+      type: String,
+      enum: ["student", "admin", "team_manager"],
+      default: "student",
+      required: true,
+    },
     status: {
       type: String,
       enum: ["active", "inactive", "suspended"],

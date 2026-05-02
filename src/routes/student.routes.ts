@@ -12,7 +12,6 @@ import {
   notificationsHandler,
   registerDemoHandler,
   registerGameHandler,
-  registrationDecisionHandler,
   resultsHandler,
   rulesHandler,
   scheduleHandler,
@@ -31,7 +30,6 @@ studentRouter.post("/games/:id/register-demo", registerDemoHandler);
 studentRouter.get("/games/:id", gameDetailsHandler);
 studentRouter.post("/games/:id/register", registerGameHandler);
 studentRouter.get("/registrations", myRegistrationsHandler);
-studentRouter.patch("/registrations/:id/decision", registrationDecisionHandler);
 studentRouter.get("/schedule", scheduleHandler);
 studentRouter.get("/rules", rulesHandler);
 studentRouter.get("/committee", committeeHandler);

@@ -1,5 +1,4 @@
 import { DateTime } from "luxon";
-import mongoose from "mongoose";
 import type { Types } from "mongoose";
 import {
   DEMO_BUSINESS_END_HOUR,
@@ -10,6 +9,7 @@ import {
 import { env } from "../config/env.js";
 import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamManagerAssignment.js";
 import { DemoBookingModel } from "../models/DemoBooking.js";
+import { TeamManagerNotificationModel } from "../models/TeamManagerNotification.js";
 import { GameModel } from "../models/Game.js";
 import { NotificationModel } from "../models/Notification.js";
 import { RegistrationModel } from "../models/Registration.js";
@@ -18,6 +18,12 @@ import type { SportsWeekDepartment } from "../constants/sports-week.js";
 import { AppError } from "../utils/errors.js";
 
 const ACTIVE_REGISTRATION_STATUSES = ["demo_booked", "pending", "accepted"] as const;
+
+function isDuplicateKeyError(err: unknown): boolean {
+  return Boolean(
+    err && typeof err === "object" && "code" in err && (err as { code?: number }).code === 11000,
+  );
+}
 
 export type DemoSchedulingContext = {
   timezone: string;
@@ -260,81 +266,80 @@ export async function registerForDemoSession(params: {
 
   const startsAtDb = startsLuxon.toUTC().toJSDate();
   const endsAtDb = endsLuxon.toUTC().toJSDate();
+  const slotLabel = startsLuxon.setZone(ctx.timezone).toFormat("ccc dd LLL yyyy, HH:mm");
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  /** Sequential writes: standalone MongoDB does not support multi-document transactions. */
+  const registration = await RegistrationModel.create({
+    studentId: student._id,
+    gameId: game._id,
+    status: "demo_booked",
+    studentDepartment: student.department,
+    studentGender: student.gender,
+  });
 
+  let createdBooking: { _id: Types.ObjectId } | null = null;
   try {
-    const [registration] = await RegistrationModel.create(
-      [
-        {
-          studentId: student._id,
-          gameId: game._id,
-          status: "demo_booked",
-          studentDepartment: student.department,
-          studentGender: student.gender,
-        },
-      ],
-      { session },
-    );
+    const booking = await DemoBookingModel.create({
+      departmentTeamManagerAssignmentId: ctx.assignmentId,
+      gameId: game._id,
+      studentId: student._id,
+      registrationId: registration._id,
+      startsAt: startsAtDb,
+      endsAt: endsAtDb,
+    });
 
-    const [booking] = await DemoBookingModel.create(
-      [
-        {
-          departmentTeamManagerAssignmentId: ctx.assignmentId,
-          gameId: game._id,
-          studentId: student._id,
-          registrationId: registration._id,
-          startsAt: startsAtDb,
-          endsAt: endsAtDb,
-        },
-      ],
-      { session },
-    );
-
+    createdBooking = booking;
     registration.demoBookingId = booking._id;
-    await registration.save({ session });
-
-    const slotLabel = startsLuxon.setZone(ctx.timezone).toFormat("ccc dd LLL yyyy, HH:mm");
-    await NotificationModel.create(
-      [
-        {
-          studentId: student._id,
-          title: "Demo booked",
-          message: `Your demo for ${game.title} is scheduled for ${slotLabel} (${ctx.timezone}).`,
-          category: "registration",
-          isRead: false,
-        },
-      ],
-      { session },
-    );
-
-    await session.commitTransaction();
-
-    return {
-      message: "Demo booked successfully. Attend at the scheduled time; your team manager will confirm selection afterward.",
-      registration: {
-        id: String(registration._id),
-        status: "demo_booked",
-      },
-      demo: {
-        startsAt: startsAtDb.toISOString(),
-        endsAt: endsAtDb.toISOString(),
-        timezone: ctx.timezone,
-      },
-    };
+    await registration.save();
   } catch (err: unknown) {
-    await session.abortTransaction();
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code?: number }).code === 11000
-    ) {
+    await RegistrationModel.deleteOne({ _id: registration._id }).catch(() => {});
+    if (isDuplicateKeyError(err)) {
       throw new AppError("That time slot was just taken. Please choose another.", 409);
     }
     throw err;
-  } finally {
-    session.endSession();
   }
+
+  if (createdBooking) {
+    try {
+      const assignmentDoc = await DepartmentTeamManagerAssignmentModel.findById(ctx.assignmentId).lean();
+      if (assignmentDoc?.linkedUserId) {
+        await TeamManagerNotificationModel.create({
+          teamManagerUserId: assignmentDoc.linkedUserId,
+          title: "New demo request",
+          message: `${student.name} (${student.department}) booked a demo for ${game.title} on ${slotLabel} (${ctx.timezone}).`,
+          registrationId: registration._id,
+          demoBookingId: createdBooking._id,
+          isRead: false,
+        });
+      }
+    } catch (tmNotifyErr) {
+      console.error("[demo-booking] Team manager notification failed:", tmNotifyErr);
+    }
+  }
+
+  try {
+    await NotificationModel.create({
+      studentId: student._id,
+      title: "Demo booked",
+      message: `Your demo for ${game.title} is scheduled for ${slotLabel} (${ctx.timezone}).`,
+      category: "registration",
+      isRead: false,
+    });
+  } catch (notifyErr) {
+    console.error("[demo-booking] Notification insert failed after successful booking:", notifyErr);
+  }
+
+  return {
+    message:
+      "Demo booked successfully. Attend at the scheduled time; your team manager will confirm selection afterward.",
+    registration: {
+      id: String(registration._id),
+      status: "demo_booked",
+    },
+    demo: {
+      startsAt: startsAtDb.toISOString(),
+      endsAt: endsAtDb.toISOString(),
+      timezone: ctx.timezone,
+    },
+  };
 }

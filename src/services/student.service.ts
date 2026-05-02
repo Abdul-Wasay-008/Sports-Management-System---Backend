@@ -5,6 +5,7 @@ import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamMa
 import { GameCategoryModel } from "../models/GameCategory.js";
 import { GameManagerAssignmentModel } from "../models/GameManagerAssignment.js";
 import { GameManagerModel } from "../models/GameManager.js";
+import { DemoBookingModel } from "../models/DemoBooking.js";
 import { GameModel } from "../models/Game.js";
 import { NotificationModel } from "../models/Notification.js";
 import { RegistrationModel, type RegistrationStatus } from "../models/Registration.js";
@@ -319,7 +320,8 @@ export async function getMyRegistrations(userId: string, filters: StudentQueryFi
   }).filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
-export async function decideRegistration(
+/** Internal mutation used after authorization (admin or team manager). */
+export async function decideRegistrationCore(
   registrationId: string,
   status: Extract<RegistrationStatus, "accepted" | "rejected">,
   note?: string,
@@ -372,6 +374,42 @@ export async function decideRegistration(
       decidedAt: registration.decidedAt,
     },
   };
+}
+
+export async function decideRegistrationAsActor(
+  actor: { userId: string; role: "admin" | "team_manager" },
+  registrationId: string,
+  status: Extract<RegistrationStatus, "accepted" | "rejected">,
+  note?: string,
+) {
+  if (actor.role === "team_manager") {
+    if (!Types.ObjectId.isValid(registrationId)) {
+      throw new AppError("Invalid registration id.", 400);
+    }
+    const regObjId = new Types.ObjectId(registrationId);
+    const booking = await DemoBookingModel.findOne({ registrationId: regObjId }).lean();
+    if (!booking) {
+      throw new AppError(
+        "You can only accept or reject registrations that have a booked demo for your assignments.",
+        403,
+      );
+    }
+    const assignment = await DepartmentTeamManagerAssignmentModel.findById(
+      booking.departmentTeamManagerAssignmentId,
+    ).lean();
+    if (
+      !assignment?.linkedUserId ||
+      String(assignment.linkedUserId) !== actor.userId
+    ) {
+      throw new AppError("You are not responsible for this demo booking.", 403);
+    }
+    const registration = await RegistrationModel.findById(registrationId).lean();
+    if (!registration || registration.status !== "demo_booked") {
+      throw new AppError("This registration is not awaiting a demo decision.", 400);
+    }
+  }
+
+  return decideRegistrationCore(registrationId, status, note);
 }
 
 export async function getSchedule() {
@@ -519,11 +557,13 @@ export async function getDepartmentTeamManagers(userId: string, filters: Student
     if (!category?.gender || (category.gender !== "mixed" && category.gender !== allowedGender)) {
       return null;
     }
+    const email = row.managerEmail?.trim() || null;
     return {
       _id: String(row._id),
       department: row.department,
       managerName: row.managerName,
       contact: row.contact ?? null,
+      email,
       gameCategoryId: category ? String(category._id) : null,
       gameCategoryName: category?.name ?? "",
       gameCategoryGender: category?.gender ?? null,

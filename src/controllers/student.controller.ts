@@ -1,7 +1,6 @@
 import type { Response } from "express";
 import type { AuthenticatedRequest } from "../middleware/auth.middleware.js";
 import {
-  decideRegistration,
   getDemoSlotsForGame,
   getDepartmentTeamManagers,
   getGameCategories,
@@ -112,22 +111,6 @@ export async function myRegistrationsHandler(req: AuthenticatedRequest, res: Res
       gameId: typeof req.query.gameId === "string" ? req.query.gameId : undefined,
     });
     return res.status(200).json({ registrations: data });
-  } catch (err) {
-    return handleError(res, err);
-  }
-}
-
-export async function registrationDecisionHandler(
-  req: AuthenticatedRequest,
-  res: Response,
-) {
-  try {
-    const status = String(req.body.status ?? "");
-    if (status !== "accepted" && status !== "rejected") {
-      throw new AppError("Status must be accepted or rejected.", 400);
-    }
-    const data = await decideRegistration(String(req.params.id), status, String(req.body.note ?? ""));
-    return res.status(200).json(data);
   } catch (err) {
     return handleError(res, err);
   }

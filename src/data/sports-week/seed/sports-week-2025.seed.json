@@ -132,5 +132,14 @@
     { "name": "Sadia Rasheed", "categorySlug": "tug-of-war-girls", "department": "Sports Office" },
     { "name": "Naveed Ahmed", "categorySlug": "volleyball-boys", "department": "Sports Office" }
   ],
-  "departmentTeamManagers": []
+  "departmentTeamManagers": [],
+  "teamManagerRoster": [
+    {
+      "email": "anam-naseem@cust.pk",
+      "name": "Anam Naseem",
+      "assignments": [
+        { "department": "Computer Science", "categorySlug": "athletics-girls" }
+      ]
+    }
+  ]
 }
