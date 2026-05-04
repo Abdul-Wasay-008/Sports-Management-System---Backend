@@ -4,15 +4,18 @@ import {
   dashboardHandler,
   demoSlotsHandler,
   departmentTeamManagersHandler,
+  departmentTrendsHandler,
   gameDetailsHandler,
   gameCategoriesHandler,
   gameManagersHandler,
   gamesHandler,
   myRegistrationsHandler,
+  myStatsHandler,
   notificationsHandler,
   registerDemoHandler,
   registerGameHandler,
   resultsHandler,
+  resultsStandingsHandler,
   rulesHandler,
   scheduleHandler,
   statsHandler,
@@ -37,5 +40,8 @@ studentRouter.get("/game-managers", gameManagersHandler);
 studentRouter.get("/team-managers", departmentTeamManagersHandler);
 studentRouter.get("/game-categories", gameCategoriesHandler);
 studentRouter.get("/results", resultsHandler);
+studentRouter.get("/results/standings", resultsStandingsHandler);
 studentRouter.get("/stats", statsHandler);
+studentRouter.get("/me/stats", myStatsHandler);
+studentRouter.get("/department-trends", departmentTrendsHandler);
 studentRouter.get("/notifications", notificationsHandler);

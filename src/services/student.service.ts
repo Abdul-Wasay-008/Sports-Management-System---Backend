@@ -14,6 +14,7 @@ import { RuleModel } from "../models/Rule.js";
 import type { UserDocument } from "../models/User.js";
 import { UserModel } from "../models/User.js";
 import { type GameGender, type SportsWeekDepartment } from "../constants/sports-week.js";
+import { getStandings as getResultsStandings } from "./results.service.js";
 import { env } from "../config/env.js";
 import {
   getDemoSlotsForWeek,
@@ -48,6 +49,8 @@ type StudentQueryFilters = {
   gender?: GameGender;
   gameCategoryId?: string;
   gameId?: string;
+  from?: Date;
+  to?: Date;
 };
 
 function assertEligible(studentGender: "male" | "female", gameGender: "male" | "female" | "mixed") {
@@ -108,6 +111,44 @@ export async function getStudentDashboard(userId: string) {
   };
 }
 
+/**
+ * Aggregates active (demo_booked + pending + accepted) and accepted-only
+ * registration counts per `gameId` for a single department in one round-trip.
+ * Both totals are needed downstream: the active count gates new bookings while
+ * the accepted count drives the "available in your department" UI label.
+ */
+async function getDepartmentRegistrationCounts(
+  gameIds: Types.ObjectId[],
+  department: string,
+): Promise<Map<string, { active: number; accepted: number }>> {
+  if (gameIds.length === 0) return new Map();
+  const rows = await RegistrationModel.aggregate<{
+    _id: Types.ObjectId;
+    active: number;
+    accepted: number;
+  }>([
+    {
+      $match: {
+        gameId: { $in: gameIds },
+        studentDepartment: department,
+        status: { $in: ["demo_booked", "pending", "accepted"] },
+      },
+    },
+    {
+      $group: {
+        _id: "$gameId",
+        active: { $sum: 1 },
+        accepted: { $sum: { $cond: [{ $eq: ["$status", "accepted"] }, 1, 0] } },
+      },
+    },
+  ]);
+  const out = new Map<string, { active: number; accepted: number }>();
+  for (const row of rows) {
+    out.set(String(row._id), { active: row.active, accepted: row.accepted });
+  }
+  return out;
+}
+
 export async function getEligibleGames(userId: string, filters: StudentQueryFilters = {}) {
   const student = await requireStudentUser(userId);
 
@@ -131,28 +172,43 @@ export async function getEligibleGames(userId: string, filters: StudentQueryFilt
     .populate("managerId")
     .sort({ title: 1 });
 
-  return games.map((game) => {
-    if (filters.department && filters.department !== student.department) return null;
-    const manager = game.managerId as unknown as PopulatedManager | null;
-    return {
-    id: String(game._id),
-    title: game.title,
-    slug: game.slug,
-    description: game.description,
-    venue: game.venue,
-    genderCategory: game.genderCategory,
-    totalSlots: game.totalSlots,
-    acceptedRegistrations: game.acceptedRegistrations,
-    availableSlots: Math.max(0, game.totalSlots - game.acceptedRegistrations),
-    registrationOpen: game.acceptedRegistrations < game.totalSlots,
-    manager: manager
-      ? {
-          id: String(manager._id),
-          name: manager.name,
-        }
-      : null,
-  };
-  }).filter((row): row is NonNullable<typeof row> => Boolean(row));
+  const deptCounts = await getDepartmentRegistrationCounts(
+    games.map((g) => g._id as Types.ObjectId),
+    student.department,
+  );
+
+  return games
+    .map((game) => {
+      if (filters.department && filters.department !== student.department) return null;
+      const manager = game.managerId as unknown as PopulatedManager | null;
+      const policy = game.slotPolicy;
+      const counts = deptCounts.get(String(game._id)) ?? { active: 0, accepted: 0 };
+      const availableInMyDepartment = Math.max(0, policy.perDepartmentPlayers - counts.active);
+      const globalAvailable = Math.max(0, game.totalSlots - game.acceptedRegistrations);
+      return {
+        id: String(game._id),
+        title: game.title,
+        slug: game.slug,
+        description: game.description,
+        venue: game.venue,
+        genderCategory: game.genderCategory,
+        totalSlots: game.totalSlots,
+        acceptedRegistrations: game.acceptedRegistrations,
+        availableSlots: globalAvailable,
+        slotMode: policy.mode,
+        perDepartmentPlayers: policy.perDepartmentPlayers,
+        availableInMyDepartment,
+        acceptedInMyDepartment: counts.accepted,
+        registrationOpen: availableInMyDepartment > 0 && globalAvailable > 0,
+        manager: manager
+          ? {
+              id: String(manager._id),
+              name: manager.name,
+            }
+          : null,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
 export async function getGameDetails(userId: string, gameId: string) {
@@ -175,11 +231,21 @@ export async function getGameDetails(userId: string, gameId: string) {
 
   const cooldownEndsAt = await getLatestCooldownEndsAt(student._id, game._id);
 
-  const registrationOpen = game.acceptedRegistrations < game.totalSlots;
-  const slotsFull = !registrationOpen;
+  const policy = game.slotPolicy;
+  const deptCounts = await getDepartmentRegistrationCounts(
+    [game._id as Types.ObjectId],
+    student.department,
+  );
+  const counts = deptCounts.get(String(game._id)) ?? { active: 0, accepted: 0 };
+  const availableInMyDepartment = Math.max(0, policy.perDepartmentPlayers - counts.active);
+
+  const globalSlotsFull = game.acceptedRegistrations >= game.totalSlots;
+  const departmentSlotsFull = availableInMyDepartment <= 0;
+  const registrationOpen = !globalSlotsFull && !departmentSlotsFull;
 
   let blockReason: string | null = null;
-  if (slotsFull) blockReason = "slots_full";
+  if (departmentSlotsFull) blockReason = "department_slots_full";
+  else if (globalSlotsFull) blockReason = "slots_full";
   else if (!schedulingConfigured) blockReason = "no_team_manager";
   else if (activeRegistration) blockReason = "already_registered";
   else if (cooldownEndsAt) blockReason = "cooldown";
@@ -202,6 +268,11 @@ export async function getGameDetails(userId: string, gameId: string) {
     totalSlots: game.totalSlots,
     acceptedRegistrations: game.acceptedRegistrations,
     availableSlots: Math.max(0, game.totalSlots - game.acceptedRegistrations),
+    slotMode: policy.mode,
+    perDepartmentPlayers: policy.perDepartmentPlayers,
+    availableInMyDepartment,
+    acceptedInMyDepartment: counts.accepted,
+    events: policy.events?.map((e) => ({ name: e.name, perDepartmentPlayers: e.perDepartmentPlayers })) ?? null,
     registrationOpen,
     registrationStatus: activeRegistration?.status ?? null,
     schedulingConfigured,
@@ -340,6 +411,26 @@ export async function decideRegistrationCore(
 
   if (status === "accepted" && game.acceptedRegistrations >= game.totalSlots) {
     throw new AppError("Cannot accept because game slots are full.", 400);
+  }
+
+  if (status === "accepted" && registration.studentDepartment) {
+    /**
+     * Hard cap from the manual: a department's accepted roster cannot grow
+     * past `slotPolicy.perDepartmentPlayers`. Checked separately from the
+     * global cap above so the team manager gets a clear, dept-specific error.
+     */
+    const acceptedInDept = await RegistrationModel.countDocuments({
+      gameId: game._id,
+      studentDepartment: registration.studentDepartment,
+      status: "accepted",
+    });
+    if (acceptedInDept >= game.slotPolicy.perDepartmentPlayers) {
+      const slotWord = game.slotPolicy.mode === "team" ? "roster slot" : "slot";
+      throw new AppError(
+        `Cannot accept: ${registration.studentDepartment} has already filled all ${game.slotPolicy.perDepartmentPlayers} ${slotWord}${game.slotPolicy.perDepartmentPlayers === 1 ? "" : "s"} for ${game.title}.`,
+        400,
+      );
+    }
   }
 
   registration.status = status;
@@ -484,6 +575,12 @@ export async function getResults(userId: string, filters: StudentQueryFilters = 
   if (filters.gameId && Types.ObjectId.isValid(filters.gameId)) {
     resultQuery.gameId = new Types.ObjectId(filters.gameId);
   }
+  if (filters.from || filters.to) {
+    const range: Record<string, Date> = {};
+    if (filters.from) range.$gte = filters.from;
+    if (filters.to) range.$lte = filters.to;
+    resultQuery.playedAt = range;
+  }
   if (filters.department && filters.department !== student.department) return [];
   return ResultModel.find(resultQuery).sort({ playedAt: -1 });
 }
@@ -582,4 +679,315 @@ export async function getGameCategories() {
     slug: row.slug,
     gender: row.gender,
   }));
+}
+
+/**
+ * Personal stats used to power the "My activity" section of the student
+ * Statistics tab: registration funnel, status breakdown, recent timeline,
+ * sports tried vs available, and any active rejection cooldowns.
+ */
+export async function getMyStats(userId: string) {
+  const student = await requireStudentUser(userId);
+
+  const registrations = await RegistrationModel.find({ studentId: student._id })
+    .populate("gameId")
+    .populate("demoBookingId")
+    .sort({ createdAt: 1 })
+    .lean();
+
+  let pending = 0;
+  let demoBooked = 0;
+  let accepted = 0;
+  let rejected = 0;
+  let cancelled = 0;
+  let demoCompleted = 0;
+  const triedCategoryIds = new Set<string>();
+  const cooldowns: Array<{
+    gameId: string;
+    gameTitle: string;
+    rejectedAt: string;
+    cooldownEndsAt: string;
+    daysRemaining: number;
+  }> = [];
+
+  type PopulatedGame = {
+    _id: Types.ObjectId;
+    title: string;
+    gameCategoryId?: Types.ObjectId | null;
+  };
+  type PopulatedDemo = { startsAt: Date; endsAt: Date } | null;
+
+  const COOLDOWN_DAYS = 10;
+  const now = new Date();
+
+  for (const reg of registrations) {
+    if (reg.status === "pending") pending += 1;
+    else if (reg.status === "demo_booked") demoBooked += 1;
+    else if (reg.status === "accepted") accepted += 1;
+    else if (reg.status === "rejected") rejected += 1;
+    else if (reg.status === "cancelled") cancelled += 1;
+
+    const demo = reg.demoBookingId as unknown as PopulatedDemo;
+    if (demo && demo.endsAt instanceof Date && demo.endsAt.getTime() <= now.getTime()) {
+      demoCompleted += 1;
+    }
+
+    const game = reg.gameId as unknown as PopulatedGame | null;
+    if (game?.gameCategoryId) {
+      triedCategoryIds.add(String(game.gameCategoryId));
+    }
+
+    if (reg.status === "rejected" && reg.decidedAt instanceof Date) {
+      const cooldownEnds = new Date(
+        reg.decidedAt.getTime() + COOLDOWN_DAYS * 24 * 60 * 60 * 1000,
+      );
+      if (cooldownEnds.getTime() > now.getTime() && game) {
+        const daysRemaining = Math.max(
+          0,
+          Math.ceil((cooldownEnds.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+        );
+        cooldowns.push({
+          gameId: String(game._id),
+          gameTitle: game.title,
+          rejectedAt: reg.decidedAt.toISOString(),
+          cooldownEndsAt: cooldownEnds.toISOString(),
+          daysRemaining,
+        });
+      }
+    }
+  }
+
+  const totalApplied = registrations.length;
+  const totalDemoEverBooked = registrations.filter(
+    (r) =>
+      r.status === "demo_booked" ||
+      r.status === "accepted" ||
+      r.status === "rejected" ||
+      r.status === "cancelled",
+  ).length;
+  const totalDecisions = accepted + rejected;
+
+  const funnel = [
+    { stage: "Applied", value: totalApplied },
+    { stage: "Demo booked", value: totalDemoEverBooked },
+    { stage: "Demo completed", value: demoCompleted },
+    { stage: "Accepted", value: accepted },
+  ];
+
+  const statusBreakdown = {
+    pending,
+    demoBooked,
+    accepted,
+    rejected,
+    cancelled,
+  };
+
+  const eligibleGames = await GameModel.find({
+    isActive: true,
+    genderCategory: { $in: [student.gender, "mixed"] },
+  })
+    .populate("gameCategoryId")
+    .lean();
+
+  const sportTriedSet = new Set<string>();
+  const sportEligibleSet = new Set<string>();
+
+  type PopulatedCategory = {
+    _id: Types.ObjectId;
+    name?: string;
+    sportId?: Types.ObjectId | null;
+  };
+
+  const allSportNames = new Set<string>();
+  const sportNameByCategoryId = new Map<string, string>();
+  const allSportIds = new Set<string>();
+  for (const g of eligibleGames) {
+    const cat = g.gameCategoryId as unknown as PopulatedCategory | null;
+    if (!cat) continue;
+    if (cat.sportId) allSportIds.add(String(cat.sportId));
+    sportNameByCategoryId.set(String(cat._id), cat.name ?? "Other");
+  }
+
+  const sportsList = allSportIds.size
+    ? await (await import("../models/Sport.js")).SportModel.find({
+        _id: { $in: Array.from(allSportIds).map((id) => new Types.ObjectId(id)) },
+      }).lean()
+    : [];
+  const sportNameById = new Map<string, string>();
+  for (const s of sportsList) {
+    sportNameById.set(String(s._id), s.name);
+    allSportNames.add(s.name);
+  }
+
+  for (const g of eligibleGames) {
+    const cat = g.gameCategoryId as unknown as PopulatedCategory | null;
+    if (!cat?.sportId) continue;
+    const name = sportNameById.get(String(cat.sportId));
+    if (name) sportEligibleSet.add(name);
+  }
+
+  for (const cid of triedCategoryIds) {
+    const cat = await GameCategoryModel.findById(cid).populate("sportId", "name").lean();
+    const sport = cat?.sportId as unknown as { name?: string } | null;
+    if (sport?.name) {
+      sportTriedSet.add(sport.name);
+      allSportNames.add(sport.name);
+    }
+  }
+
+  const sportsRadar = Array.from(allSportNames)
+    .sort()
+    .map((name) => ({
+      sport: name,
+      tried: sportTriedSet.has(name) ? 1 : 0,
+      available: sportEligibleSet.has(name) ? 1 : 0,
+    }));
+
+  const timelineMap = new Map<string, { date: string; applications: number; decisions: number }>();
+  for (const reg of registrations) {
+    if (reg.createdAt instanceof Date) {
+      const key = reg.createdAt.toISOString().slice(0, 10);
+      const prev = timelineMap.get(key) ?? { date: key, applications: 0, decisions: 0 };
+      prev.applications += 1;
+      timelineMap.set(key, prev);
+    }
+    if (reg.decidedAt instanceof Date && (reg.status === "accepted" || reg.status === "rejected")) {
+      const key = reg.decidedAt.toISOString().slice(0, 10);
+      const prev = timelineMap.get(key) ?? { date: key, applications: 0, decisions: 0 };
+      prev.decisions += 1;
+      timelineMap.set(key, prev);
+    }
+  }
+  const timeline = Array.from(timelineMap.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
+
+  return {
+    summary: {
+      totalApplied,
+      accepted,
+      rejected,
+      pending: pending + demoBooked,
+      cancelled,
+      acceptRate: totalDecisions === 0 ? null : Math.round((accepted / totalDecisions) * 100),
+    },
+    funnel,
+    statusBreakdown,
+    sportsRadar,
+    timeline,
+    cooldowns,
+  };
+}
+
+/**
+ * Department-comparison data for charts on the student Statistics tab. Returns
+ * per-game slot utilization across the student's eligible games and a gender
+ * split scoped to the student's department.
+ */
+export async function getDepartmentTrends(userId: string) {
+  const student = await requireStudentUser(userId);
+
+  const games = await GameModel.find({
+    isActive: true,
+    genderCategory: { $in: [student.gender, "mixed"] },
+  })
+    .sort({ title: 1 })
+    .lean();
+
+  const slotUtilization = games.map((g) => ({
+    gameId: String(g._id),
+    title: g.title,
+    genderCategory: g.genderCategory,
+    totalSlots: g.totalSlots,
+    accepted: g.acceptedRegistrations,
+    available: Math.max(0, g.totalSlots - g.acceptedRegistrations),
+    utilizationPct:
+      g.totalSlots > 0 ? Math.round((g.acceptedRegistrations / g.totalSlots) * 100) : 0,
+  }));
+
+  const myDeptGenderSplit = await RegistrationModel.aggregate<{
+    _id: "male" | "female";
+    count: number;
+  }>([
+    {
+      $match: {
+        status: "accepted",
+        studentDepartment: student.department,
+        studentGender: { $in: ["male", "female"] },
+      },
+    },
+    { $group: { _id: "$studentGender", count: { $sum: 1 } } },
+  ]);
+  const genderInDepartment = { male: 0, female: 0 };
+  for (const row of myDeptGenderSplit) {
+    if (row._id === "male") genderInDepartment.male = row.count;
+    if (row._id === "female") genderInDepartment.female = row.count;
+  }
+
+  const demoToAcceptByGame = await RegistrationModel.aggregate<{
+    _id: Types.ObjectId;
+    demoStarted: number;
+    accepted: number;
+    rejected: number;
+  }>([
+    {
+      $match: {
+        status: { $in: ["demo_booked", "accepted", "rejected"] },
+        studentGender: { $in: [student.gender, "mixed"] },
+      },
+    },
+    {
+      $group: {
+        _id: "$gameId",
+        demoStarted: { $sum: 1 },
+        accepted: { $sum: { $cond: [{ $eq: ["$status", "accepted"] }, 1, 0] } },
+        rejected: { $sum: { $cond: [{ $eq: ["$status", "rejected"] }, 1, 0] } },
+      },
+    },
+  ]);
+
+  const titleByGameId = new Map<string, string>();
+  for (const g of games) titleByGameId.set(String(g._id), g.title);
+
+  const demoToAccept = demoToAcceptByGame
+    .filter((row) => titleByGameId.has(String(row._id)))
+    .map((row) => {
+      const decisions = row.accepted + row.rejected;
+      return {
+        gameId: String(row._id),
+        title: titleByGameId.get(String(row._id)) ?? "Game",
+        demoStarted: row.demoStarted,
+        decisions,
+        accepted: row.accepted,
+        rejected: row.rejected,
+        acceptRate: decisions === 0 ? 0 : Math.round((row.accepted / decisions) * 100),
+      };
+    })
+    .sort((a, b) => b.demoStarted - a.demoStarted)
+    .slice(0, 12);
+
+  return {
+    department: student.department,
+    eligibleGenders: [student.gender, "mixed"] as const,
+    slotUtilization,
+    genderInDepartment,
+    demoToAccept,
+  };
+}
+
+type StandingsFilters = {
+  gameCategoryId?: string;
+  gender?: GameGender;
+  from?: Date;
+  to?: Date;
+};
+
+export async function getStudentResultsStandings(userId: string, filters: StandingsFilters) {
+  await requireStudentUser(userId);
+  return getResultsStandings({
+    gameCategoryId: filters.gameCategoryId,
+    gender: filters.gender,
+    from: filters.from,
+    to: filters.to,
+  });
 }

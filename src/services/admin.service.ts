@@ -12,7 +12,13 @@ import { EmailOtpModel } from "../models/EmailOtp.js";
 import { GameCategoryModel } from "../models/GameCategory.js";
 import { GameManagerAssignmentModel } from "../models/GameManagerAssignment.js";
 import { GameManagerModel } from "../models/GameManager.js";
-import { GameModel } from "../models/Game.js";
+import {
+  GameModel,
+  SLOT_MODES,
+  type GameSlotEvent,
+  type GameSlotPolicy,
+  type SlotMode,
+} from "../models/Game.js";
 import { NotificationModel } from "../models/Notification.js";
 import { RegistrationModel } from "../models/Registration.js";
 import { ResultModel } from "../models/Result.js";
@@ -383,6 +389,19 @@ export async function listGames(params: ListGamesParams) {
       rulesSummary: g.rulesSummary,
       totalSlots: g.totalSlots,
       acceptedRegistrations: g.acceptedRegistrations,
+      slotMode: g.slotPolicy?.mode ?? null,
+      perDepartmentPlayers: g.slotPolicy?.perDepartmentPlayers ?? null,
+      slotPolicy: g.slotPolicy
+        ? {
+            mode: g.slotPolicy.mode,
+            perDepartmentPlayers: g.slotPolicy.perDepartmentPlayers,
+            events:
+              g.slotPolicy.events?.map((e) => ({
+                name: e.name,
+                perDepartmentPlayers: e.perDepartmentPlayers,
+              })) ?? null,
+          }
+        : null,
       isActive: g.isActive,
       managerId: g.managerId ? String((g.managerId as { _id: Types.ObjectId })._id) : undefined,
       manager: g.managerId,
@@ -401,11 +420,71 @@ type CreateGameInput = {
   genderCategory: "male" | "female" | "mixed";
   venue: string;
   rulesSummary: string;
-  totalSlots: number;
+  slotMode: SlotMode;
+  perDepartmentPlayers: number;
+  events?: Array<{ name: string; perDepartmentPlayers: number }>;
   managerId: string;
   gameCategoryId: string;
   isActive?: boolean;
 };
+
+/**
+ * Validates the admin-supplied slot configuration into a model-shaped
+ * `GameSlotPolicy`. Centralized here so create + update share the same rules.
+ */
+function buildSlotPolicy(
+  slotMode: unknown,
+  perDepartmentPlayers: unknown,
+  events: unknown,
+): GameSlotPolicy {
+  if (typeof slotMode !== "string" || !SLOT_MODES.includes(slotMode as SlotMode)) {
+    throw new AppError("slotMode must be 'individual' or 'team'.", 400);
+  }
+  const cap = Number(perDepartmentPlayers);
+  if (!Number.isFinite(cap) || cap < 1 || !Number.isInteger(cap)) {
+    throw new AppError("perDepartmentPlayers must be a positive integer.", 400);
+  }
+
+  let cleanedEvents: GameSlotEvent[] | undefined;
+  if (events !== undefined && events !== null) {
+    if (!Array.isArray(events)) {
+      throw new AppError("events must be an array.", 400);
+    }
+    if (slotMode === "team" && events.length > 0) {
+      throw new AppError("events cannot be set on team-mode games.", 400);
+    }
+    cleanedEvents = events.map((raw, idx) => {
+      if (!raw || typeof raw !== "object") {
+        throw new AppError(`events[${idx}] must be an object.`, 400);
+      }
+      const ev = raw as { name?: unknown; perDepartmentPlayers?: unknown };
+      const name = typeof ev.name === "string" ? ev.name.trim() : "";
+      const evCap = Number(ev.perDepartmentPlayers);
+      if (!name) throw new AppError(`events[${idx}].name is required.`, 400);
+      if (!Number.isFinite(evCap) || evCap < 1 || !Number.isInteger(evCap)) {
+        throw new AppError(`events[${idx}].perDepartmentPlayers must be a positive integer.`, 400);
+      }
+      return { name, perDepartmentPlayers: evCap };
+    });
+    if (cleanedEvents.length > 0) {
+      const sum = cleanedEvents.reduce((acc, e) => acc + e.perDepartmentPlayers, 0);
+      if (sum !== cap) {
+        throw new AppError(
+          `Sum of events.perDepartmentPlayers (${sum}) must equal perDepartmentPlayers (${cap}).`,
+          400,
+        );
+      }
+    } else {
+      cleanedEvents = undefined;
+    }
+  }
+
+  return {
+    mode: slotMode as SlotMode,
+    perDepartmentPlayers: cap,
+    events: cleanedEvents,
+  };
+}
 
 export async function createGame(input: CreateGameInput) {
   const slug = input.slug.trim().toLowerCase();
@@ -434,10 +513,12 @@ export async function createGame(input: CreateGameInput) {
     throw new AppError("Game manager not found.", 404);
   }
 
-  const totalSlots = Number(input.totalSlots);
-  if (!Number.isFinite(totalSlots) || totalSlots < 1) {
-    throw new AppError("totalSlots must be at least 1.", 400);
-  }
+  const slotPolicy = buildSlotPolicy(
+    input.slotMode,
+    input.perDepartmentPlayers,
+    input.events,
+  );
+  const totalSlots = slotPolicy.perDepartmentPlayers * SPORTS_WEEK_DEPARTMENTS.length;
 
   try {
     const game = await GameModel.create({
@@ -449,6 +530,7 @@ export async function createGame(input: CreateGameInput) {
       rulesSummary: input.rulesSummary.trim(),
       totalSlots,
       acceptedRegistrations: 0,
+      slotPolicy,
       managerId: input.managerId,
       gameCategoryId: input.gameCategoryId,
       isActive: input.isActive ?? true,
@@ -470,7 +552,9 @@ type UpdateGameInput = Partial<{
   genderCategory: "male" | "female" | "mixed";
   venue: string;
   rulesSummary: string;
-  totalSlots: number;
+  slotMode: SlotMode;
+  perDepartmentPlayers: number;
+  events: Array<{ name: string; perDepartmentPlayers: number }>;
   managerId: string;
   gameCategoryId: string;
   isActive: boolean;
@@ -493,18 +577,35 @@ export async function updateGame(gameId: string, input: UpdateGameInput) {
     game.slug = input.slug.trim().toLowerCase();
   }
 
-  if (input.totalSlots !== undefined) {
-    const next = Number(input.totalSlots);
-    if (!Number.isFinite(next) || next < 1) {
-      throw new AppError("totalSlots must be at least 1.", 400);
-    }
-    if (next < game.acceptedRegistrations) {
+  if (
+    input.slotMode !== undefined ||
+    input.perDepartmentPlayers !== undefined ||
+    input.events !== undefined
+  ) {
+    /**
+     * The slot policy is updated as a single unit because `events` only makes
+     * sense relative to `mode` + `perDepartmentPlayers`. Falling back to the
+     * existing values lets a partial PATCH change just the cap, just the mode,
+     * or just the events list.
+     */
+    const nextMode = input.slotMode ?? game.slotPolicy.mode;
+    const nextCap =
+      input.perDepartmentPlayers !== undefined
+        ? input.perDepartmentPlayers
+        : game.slotPolicy.perDepartmentPlayers;
+    const nextEvents =
+      input.events !== undefined ? input.events : game.slotPolicy.events ?? undefined;
+
+    if (Number(nextCap) < game.acceptedRegistrations) {
       throw new AppError(
-        `totalSlots cannot be less than accepted registrations (${game.acceptedRegistrations}).`,
+        `perDepartmentPlayers cannot be lower than accepted registrations (${game.acceptedRegistrations}) without resetting them.`,
         400,
       );
     }
-    game.totalSlots = next;
+
+    const slotPolicy = buildSlotPolicy(nextMode, nextCap, nextEvents);
+    game.slotPolicy = slotPolicy;
+    game.totalSlots = slotPolicy.perDepartmentPlayers * SPORTS_WEEK_DEPARTMENTS.length;
   }
 
   if (input.managerId !== undefined) {

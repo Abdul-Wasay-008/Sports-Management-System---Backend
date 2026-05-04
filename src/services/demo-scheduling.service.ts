@@ -272,6 +272,26 @@ export async function registerForDemoSession(params: {
     throw new AppError("Registration is closed because all slots are filled.", 400);
   }
 
+  /**
+   * Per-(game × department) cap from the manual. Counts every "in-flight"
+   * registration (booked demos + pending decisions + already accepted) so a
+   * single department cannot queue past its team / individual cap. The
+   * existing global `totalSlots` check above remains as an upper bound.
+   */
+  const perDepartmentCap = game.slotPolicy.perDepartmentPlayers;
+  const activeInDept = await RegistrationModel.countDocuments({
+    gameId: game._id,
+    studentDepartment: student.department,
+    status: { $in: ["demo_booked", "pending", "accepted"] },
+  });
+  if (activeInDept >= perDepartmentCap) {
+    const slotWord = game.slotPolicy.mode === "team" ? "roster slot" : "slot";
+    throw new AppError(
+      `Your department (${student.department}) has filled all ${perDepartmentCap} ${slotWord}${perDepartmentCap === 1 ? "" : "s"} for ${game.title}.`,
+      400,
+    );
+  }
+
   const ctx = await resolveDemoSchedulingContext(game, student.department);
   if (!ctx) {
     throw new AppError(

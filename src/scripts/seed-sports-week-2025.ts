@@ -7,7 +7,7 @@ import { ensureAdminUser } from "../services/admin-bootstrap.service.js";
 import { CommitteeMemberModel } from "../models/CommitteeMember.js";
 import { DemoBookingModel } from "../models/DemoBooking.js";
 import { DepartmentTeamManagerAssignmentModel } from "../models/DepartmentTeamManagerAssignment.js";
-import { GameModel } from "../models/Game.js";
+import { GameModel, type GameSlotPolicy } from "../models/Game.js";
 import { GameCategoryModel } from "../models/GameCategory.js";
 import { GameManagerAssignmentModel } from "../models/GameManagerAssignment.js";
 import { GameManagerModel } from "../models/GameManager.js";
@@ -95,11 +95,24 @@ type SeedDepartmentManager = {
   members: SeedDepartmentManagerMember[];
 };
 
+type SeedSlotEvent = {
+  name: string;
+  perDepartmentPlayers: number;
+};
+
+type SeedSlotPolicy = {
+  categorySlug: string;
+  mode: "individual" | "team";
+  perDepartmentPlayers: number;
+  events?: SeedSlotEvent[];
+};
+
 type SportsWeekSeed = {
   sports: SeedSport[];
   coreCommittee: SeedCommittee[];
   gameManagers: SeedManager[];
   departmentTeamManagers: SeedDepartmentManager[];
+  slotPolicies: SeedSlotPolicy[];
 };
 
 type GameSeedDetails = {
@@ -377,29 +390,68 @@ async function run() {
     managerByCategoryId.set(String(row.gameCategoryId), String(row.managerId));
   }
 
+  /**
+   * Build the slot-policy lookup once. Every category in `categoryBySlug` must
+   * have a matching policy in the seed JSON; we fail fast otherwise so a
+   * misconfigured seed cannot silently create a game with no per-department cap.
+   */
+  const slotPolicyBySlug = new Map<string, SeedSlotPolicy>();
+  for (const policy of typedSeed.slotPolicies) {
+    slotPolicyBySlug.set(policy.categorySlug, policy);
+  }
+  const missingPolicies: string[] = [];
+  for (const slug of categoryBySlug.keys()) {
+    if (!slotPolicyBySlug.has(slug)) missingPolicies.push(slug);
+  }
+  if (missingPolicies.length > 0) {
+    throw new Error(
+      `[seed] Missing slotPolicies entry for: ${missingPolicies.join(", ")}`,
+    );
+  }
+  const departmentCount = SPORTS_WEEK_DEPARTMENTS.length;
+
   for (const [categorySlug, categoryId] of categoryBySlug.entries()) {
     const categoryMeta = categoryMetaBySlug.get(categorySlug);
     if (!categoryMeta) continue;
     const gameDetails = GAME_DETAILS_BY_SLUG[categorySlug];
+    const policy = slotPolicyBySlug.get(categorySlug)!;
 
     const managerId = managerByCategoryId.get(categoryId) ?? String(fallbackManager._id);
+
+    /**
+     * `slotPolicy` carries the manual's per-(game × department) caps, while
+     * `totalSlots` remains a derived global ceiling so legacy reads keep
+     * working. We explicitly do NOT touch `acceptedRegistrations` so non-reset
+     * re-seeds preserve already-decided registrations.
+     */
+    const slotPolicy: GameSlotPolicy = {
+      mode: policy.mode,
+      perDepartmentPlayers: policy.perDepartmentPlayers,
+      events: policy.events?.map((e) => ({
+        name: e.name,
+        perDepartmentPlayers: e.perDepartmentPlayers,
+      })),
+    };
 
     await GameModel.findOneAndUpdate(
       { slug: categorySlug },
       {
-        title: categoryMeta.name,
-        slug: categorySlug,
-        description: `${categoryMeta.name} fixture for Sports Week 2025.`,
-        genderCategory: categoryMeta.gender,
-        venue: gameDetails?.venue ?? "TBA",
-        rulesSummary:
-          gameDetails?.rulesSummary ??
-          `Follow official Sports Week 2025 rules for ${categoryMeta.name}.`,
-        totalSlots: 24,
-        acceptedRegistrations: 0,
-        managerId,
-        gameCategoryId: categoryId,
-        isActive: true,
+        $set: {
+          title: categoryMeta.name,
+          slug: categorySlug,
+          description: `${categoryMeta.name} fixture for Sports Week 2025.`,
+          genderCategory: categoryMeta.gender,
+          venue: gameDetails?.venue ?? "TBA",
+          rulesSummary:
+            gameDetails?.rulesSummary ??
+            `Follow official Sports Week 2025 rules for ${categoryMeta.name}.`,
+          totalSlots: policy.perDepartmentPlayers * departmentCount,
+          slotPolicy,
+          managerId,
+          gameCategoryId: categoryId,
+          isActive: true,
+        },
+        $setOnInsert: { acceptedRegistrations: 0 },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
@@ -540,6 +592,8 @@ async function run() {
     "members.linkedUserId": { $exists: false },
   });
 
+  const seededResults = await seedSampleResultsIfEmpty();
+
   const coverage = {
     sports: await SportModel.countDocuments(),
     categories: await GameCategoryModel.countDocuments(),
@@ -554,12 +608,95 @@ async function run() {
     expectedDepartments: SPORTS_WEEK_DEPARTMENTS.length,
     skippedManagerAssignments,
     skippedDepartmentTeamManagers,
+    sampleResultsSeeded: seededResults,
   };
 
   console.log("Sports Week 2025 seed completed.");
   console.log(JSON.stringify(coverage, null, 2));
 
   await ensureAdminUser();
+}
+
+/**
+ * Seeds a small spread of Result rows when the collection is empty so the
+ * Results tab can render charts immediately. Idempotent: a non-empty Result
+ * collection is never touched, even on `--reset` (the reset path already
+ * cleared it before this function runs).
+ */
+async function seedSampleResultsIfEmpty(): Promise<number> {
+  const existing = await ResultModel.estimatedDocumentCount();
+  if (existing > 0) return 0;
+
+  const games = await GameModel.find().lean();
+  if (games.length === 0) return 0;
+
+  /**
+   * Demo distribution of departments — repeats are intentional so a few
+   * departments lead the medal table, mid-pack departments feature multiple
+   * times, and a couple of departments stay near the bottom.
+   */
+  const winnerPool: ReadonlyArray<typeof SPORTS_WEEK_DEPARTMENTS[number]> = [
+    "Computer Science",
+    "Software Engineering",
+    "Computer Science",
+    "Electrical and Computer Engineering",
+    "Mechanical Engineering",
+    "Software Engineering",
+    "Civil Engineering",
+    "Computer Science",
+    "Artificial Intelligence",
+    "Pharmacy",
+    "Management Science",
+    "Software Engineering",
+    "Mathematics",
+    "Mechanical Engineering",
+    "Bioinformatics and Biosciences",
+    "Computer Science",
+    "Electrical and Computer Engineering",
+    "Civil Engineering",
+    "Software Engineering",
+    "Artificial Intelligence",
+    "Psychology",
+  ];
+
+  const docs: Array<{
+    gameId: Types.ObjectId;
+    gameTitle: string;
+    gameCategoryId?: Types.ObjectId;
+    genderCategory?: "male" | "female" | "mixed";
+    winnerDepartment: string;
+    runnerUpDepartment?: string;
+    playedAt: Date;
+  }> = [];
+
+  const today = new Date();
+  today.setHours(15, 30, 0, 0);
+
+  for (let i = 0; i < games.length; i += 1) {
+    const game = games[i];
+    const winner = winnerPool[i % winnerPool.length];
+    let runnerUp = winnerPool[(i + 3) % winnerPool.length];
+    if (runnerUp === winner) {
+      runnerUp = winnerPool[(i + 5) % winnerPool.length];
+    }
+
+    const playedAt = new Date(today.getTime());
+    playedAt.setDate(today.getDate() - (games.length - i));
+
+    docs.push({
+      gameId: game._id as Types.ObjectId,
+      gameTitle: game.title,
+      gameCategoryId: (game.gameCategoryId as Types.ObjectId | undefined) ?? undefined,
+      genderCategory: game.genderCategory,
+      winnerDepartment: winner,
+      runnerUpDepartment: runnerUp !== winner ? runnerUp : undefined,
+      playedAt,
+    });
+  }
+
+  if (docs.length === 0) return 0;
+  await ResultModel.insertMany(docs);
+  return docs.length;
 }
 
 run()

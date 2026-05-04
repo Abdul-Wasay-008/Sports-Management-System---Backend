@@ -564,5 +564,58 @@
     { "categorySlug": "volleyball-boys", "department": "Psychology", "members": [{ "name": "Mr. Zeeshan Iltaf", "contact": "0336-5482699" }] },
     { "categorySlug": "volleyball-boys", "department": "Software Engineering", "members": [{ "name": "Mr. Taimoor Riaz", "contact": "0336-0576074" }] },
     { "categorySlug": "volleyball-boys", "department": "Law", "members": [{ "name": "Mr. Naveed Ahmed Gondal", "contact": "0334-4002460" }] }
+  ],
+  "slotPolicies": [
+    {
+      "categorySlug": "athletics-boys",
+      "mode": "individual",
+      "perDepartmentPlayers": 9,
+      "events": [
+        { "name": "100 Meters", "perDepartmentPlayers": 1 },
+        { "name": "100 x 4 Relay", "perDepartmentPlayers": 4 },
+        { "name": "Long Jump", "perDepartmentPlayers": 1 },
+        { "name": "Shot-put", "perDepartmentPlayers": 1 },
+        { "name": "Discus Throw", "perDepartmentPlayers": 1 },
+        { "name": "Javelin Throw", "perDepartmentPlayers": 1 }
+      ]
+    },
+    {
+      "categorySlug": "athletics-girls",
+      "mode": "individual",
+      "perDepartmentPlayers": 10,
+      "events": [
+        { "name": "100 Meters", "perDepartmentPlayers": 1 },
+        { "name": "100 x 4 Relay", "perDepartmentPlayers": 4 },
+        { "name": "Shot-put", "perDepartmentPlayers": 1 },
+        { "name": "Three-legged Race", "perDepartmentPlayers": 2 },
+        { "name": "Discus Throw", "perDepartmentPlayers": 1 },
+        { "name": "Javelin Throw", "perDepartmentPlayers": 1 }
+      ]
+    },
+    { "categorySlug": "badminton-boys-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "badminton-boys-doubles", "mode": "team", "perDepartmentPlayers": 2 },
+    { "categorySlug": "badminton-girls-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "badminton-girls-doubles", "mode": "team", "perDepartmentPlayers": 2 },
+    { "categorySlug": "basketball-boys", "mode": "team", "perDepartmentPlayers": 10 },
+    { "categorySlug": "basketball-girls", "mode": "team", "perDepartmentPlayers": 10 },
+    { "categorySlug": "chess-boys", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "chess-girls", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "cricket-boys", "mode": "team", "perDepartmentPlayers": 15 },
+    { "categorySlug": "cricket-girls", "mode": "team", "perDepartmentPlayers": 11 },
+    { "categorySlug": "football-boys", "mode": "team", "perDepartmentPlayers": 16 },
+    { "categorySlug": "lawn-tennis-boys-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "lawn-tennis-boys-doubles", "mode": "team", "perDepartmentPlayers": 2 },
+    { "categorySlug": "lawn-tennis-girls-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "snooker-boys-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "snooker-boys-doubles", "mode": "team", "perDepartmentPlayers": 2 },
+    { "categorySlug": "snooker-girls-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "squash-boys", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "table-tennis-boys-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "table-tennis-boys-doubles", "mode": "team", "perDepartmentPlayers": 2 },
+    { "categorySlug": "table-tennis-girls-singles", "mode": "individual", "perDepartmentPlayers": 2 },
+    { "categorySlug": "table-tennis-girls-doubles", "mode": "team", "perDepartmentPlayers": 2 },
+    { "categorySlug": "tug-of-war-boys", "mode": "team", "perDepartmentPlayers": 10 },
+    { "categorySlug": "tug-of-war-girls", "mode": "team", "perDepartmentPlayers": 7 },
+    { "categorySlug": "volleyball-boys", "mode": "team", "perDepartmentPlayers": 10 }
   ]
 }

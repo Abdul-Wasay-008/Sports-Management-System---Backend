@@ -3,18 +3,21 @@ import type { AuthenticatedRequest } from "../middleware/auth.middleware.js";
 import {
   getDemoSlotsForGame,
   getDepartmentTeamManagers,
+  getDepartmentTrends,
   getGameCategories,
   getCommittee,
   getEligibleGames,
   getGameDetails,
   getGameManagers,
   getMyRegistrations,
+  getMyStats,
   getNotifications,
   getResults,
   getRules,
   getSchedule,
   getStats,
   getStudentDashboard,
+  getStudentResultsStandings,
   registerForDemo,
   registerForGame,
 } from "../services/student.service.js";
@@ -162,6 +165,8 @@ export async function resultsHandler(req: AuthenticatedRequest, res: Response) {
       gender: parseOptionalGenderFilter(req.query.gender),
       gameCategoryId: typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
       gameId: typeof req.query.gameId === "string" ? req.query.gameId : undefined,
+      from: parseDateQueryParam(req.query.from, "from"),
+      to: parseDateQueryParam(req.query.to, "to"),
     });
     return res.status(200).json({ results: data });
   } catch (err) {
@@ -208,6 +213,48 @@ export async function gameCategoriesHandler(_req: AuthenticatedRequest, res: Res
   try {
     const data = await getGameCategories();
     return res.status(200).json({ categories: data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function myStatsHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const data = await getMyStats(requireUserId(req));
+    return res.status(200).json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function departmentTrendsHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const data = await getDepartmentTrends(requireUserId(req));
+    return res.status(200).json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+function parseDateQueryParam(value: unknown, label: string): Date | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new AppError(`${label} must be a valid date.`, 400);
+  }
+  return d;
+}
+
+export async function resultsStandingsHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const data = await getStudentResultsStandings(requireUserId(req), {
+      gameCategoryId:
+        typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
+      gender: parseOptionalGenderFilter(req.query.gender),
+      from: parseDateQueryParam(req.query.from, "from"),
+      to: parseDateQueryParam(req.query.to, "to"),
+    });
+    return res.status(200).json(data);
   } catch (err) {
     return handleError(res, err);
   }

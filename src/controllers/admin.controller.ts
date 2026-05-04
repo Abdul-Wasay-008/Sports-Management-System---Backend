@@ -15,9 +15,16 @@ import {
   updateGame,
   updateStudent,
 } from "../services/admin.service.js";
+import {
+  createResult,
+  deleteResult,
+  listResults,
+  updateResult,
+} from "../services/results.service.js";
 import { AppError } from "../utils/errors.js";
 import {
   parseOptionalDepartmentFilter,
+  parseOptionalGenderFilter,
   parseStudentGender,
   sanitizeDepartment,
 } from "../utils/validators.js";
@@ -155,6 +162,14 @@ export async function adminListGamesHandler(req: AuthenticatedRequest, res: Resp
 
 export async function adminCreateGameHandler(req: AuthenticatedRequest, res: Response) {
   try {
+    const slotMode =
+      req.body.slotMode === "individual" || req.body.slotMode === "team"
+        ? req.body.slotMode
+        : "individual";
+    const events = Array.isArray(req.body.events)
+      ? (req.body.events as Array<{ name: string; perDepartmentPlayers: number }>)
+      : undefined;
+
     const data = await createGame({
       title: String(req.body.title ?? ""),
       slug: String(req.body.slug ?? ""),
@@ -162,7 +177,9 @@ export async function adminCreateGameHandler(req: AuthenticatedRequest, res: Res
       genderCategory: String(req.body.genderCategory ?? "") as "male" | "female" | "mixed",
       venue: String(req.body.venue ?? ""),
       rulesSummary: String(req.body.rulesSummary ?? ""),
-      totalSlots: Number(req.body.totalSlots ?? 0),
+      slotMode,
+      perDepartmentPlayers: Number(req.body.perDepartmentPlayers ?? 0),
+      events,
       managerId: String(req.body.managerId ?? ""),
       gameCategoryId: String(req.body.gameCategoryId ?? ""),
       isActive: typeof req.body.isActive === "boolean" ? req.body.isActive : undefined,
@@ -187,8 +204,18 @@ export async function adminUpdateGameHandler(req: AuthenticatedRequest, res: Res
     if (body.genderCategory === "male" || body.genderCategory === "female" || body.genderCategory === "mixed") {
       patch.genderCategory = body.genderCategory;
     }
-    if (body.totalSlots !== undefined && body.totalSlots !== null && body.totalSlots !== "") {
-      patch.totalSlots = Number(body.totalSlots);
+    if (body.slotMode === "individual" || body.slotMode === "team") {
+      patch.slotMode = body.slotMode;
+    }
+    if (
+      body.perDepartmentPlayers !== undefined &&
+      body.perDepartmentPlayers !== null &&
+      body.perDepartmentPlayers !== ""
+    ) {
+      patch.perDepartmentPlayers = Number(body.perDepartmentPlayers);
+    }
+    if (Array.isArray(body.events)) {
+      patch.events = body.events as Array<{ name: string; perDepartmentPlayers: number }>;
     }
     if (typeof body.managerId === "string") patch.managerId = body.managerId;
     if (typeof body.gameCategoryId === "string") patch.gameCategoryId = body.gameCategoryId;
@@ -239,6 +266,86 @@ export async function adminStatsHandler(_req: AuthenticatedRequest, res: Respons
 export async function adminLookupsHandler(_req: AuthenticatedRequest, res: Response) {
   try {
     const data = await getLookups();
+    return res.status(200).json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+function parseDateQuery(value: unknown, label: string): Date | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new AppError(`${label} must be a valid date.`, 400);
+  }
+  return d;
+}
+
+export async function adminListResultsHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const data = await listResults({
+      gameId: typeof req.query.gameId === "string" ? req.query.gameId : undefined,
+      gameCategoryId:
+        typeof req.query.gameCategoryId === "string" ? req.query.gameCategoryId : undefined,
+      gender: parseOptionalGenderFilter(req.query.gender),
+      department: parseOptionalDepartmentFilter(req.query.department),
+      from: parseDateQuery(req.query.from, "from"),
+      to: parseDateQuery(req.query.to, "to"),
+      limit:
+        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : undefined,
+    });
+    return res.status(200).json({ results: data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function adminCreateResultHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const data = await createResult({
+      gameId: typeof body.gameId === "string" ? body.gameId : undefined,
+      gameTitle: typeof body.gameTitle === "string" ? body.gameTitle : undefined,
+      gameCategoryId:
+        typeof body.gameCategoryId === "string" ? body.gameCategoryId : undefined,
+      genderCategory:
+        typeof body.genderCategory === "string" ? body.genderCategory : undefined,
+      winnerDepartment: String(body.winnerDepartment ?? ""),
+      runnerUpDepartment:
+        typeof body.runnerUpDepartment === "string" ? body.runnerUpDepartment : undefined,
+      playedAt: typeof body.playedAt === "string" ? body.playedAt : undefined,
+    });
+    return res.status(201).json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function adminUpdateResultHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const id = String(req.params.id ?? "");
+    const body = req.body as Record<string, unknown>;
+    const patch: Parameters<typeof updateResult>[1] = {};
+    if (typeof body.gameId === "string") patch.gameId = body.gameId;
+    if (typeof body.gameTitle === "string") patch.gameTitle = body.gameTitle;
+    if (typeof body.gameCategoryId === "string") patch.gameCategoryId = body.gameCategoryId;
+    if (typeof body.genderCategory === "string") patch.genderCategory = body.genderCategory;
+    if (typeof body.winnerDepartment === "string") patch.winnerDepartment = body.winnerDepartment;
+    if (typeof body.runnerUpDepartment === "string") {
+      patch.runnerUpDepartment = body.runnerUpDepartment;
+    }
+    if (typeof body.playedAt === "string") patch.playedAt = body.playedAt;
+    const data = await updateResult(id, patch);
+    return res.status(200).json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+export async function adminDeleteResultHandler(req: AuthenticatedRequest, res: Response) {
+  try {
+    const id = String(req.params.id ?? "");
+    const data = await deleteResult(id);
     return res.status(200).json(data);
   } catch (err) {
     return handleError(res, err);

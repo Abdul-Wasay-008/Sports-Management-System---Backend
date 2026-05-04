@@ -1,17 +1,21 @@
 import { Router } from "express";
 import {
   adminCreateGameHandler,
+  adminCreateResultHandler,
   adminCreateStudentHandler,
   adminDeleteGameHandler,
+  adminDeleteResultHandler,
   adminDeleteStudentHandler,
   adminGameRegistrationsHandler,
   adminListGamesHandler,
+  adminListResultsHandler,
   adminListStudentsHandler,
   adminLookupsHandler,
   adminOverviewHandler,
   adminSetStudentStatusHandler,
   adminStatsHandler,
   adminUpdateGameHandler,
+  adminUpdateResultHandler,
   adminUpdateStudentHandler,
 } from "../controllers/admin.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
@@ -36,3 +40,8 @@ adminRouter.get("/games/:id/registrations", adminGameRegistrationsHandler);
 
 adminRouter.get("/stats", adminStatsHandler);
 adminRouter.get("/lookups", adminLookupsHandler);
+
+adminRouter.get("/results", adminListResultsHandler);
+adminRouter.post("/results", adminCreateResultHandler);
+adminRouter.patch("/results/:id", adminUpdateResultHandler);
+adminRouter.delete("/results/:id", adminDeleteResultHandler);
