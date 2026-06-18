@@ -56,7 +56,7 @@ export async function adminOverviewHandler(_req: AuthenticatedRequest, res: Resp
 export async function adminListStudentsHandler(req: AuthenticatedRequest, res: Response) {
   try {
     const page = Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1);
-    const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? "20"), 10) || 20));
+    const limit = Math.min(500, Math.max(1, Number.parseInt(String(req.query.limit ?? "20"), 10) || 20));
     const search = typeof req.query.search === "string" ? req.query.search : undefined;
     const status =
       req.query.status === "active" || req.query.status === "inactive" || req.query.status === "suspended"
@@ -181,7 +181,10 @@ export async function adminCreateGameHandler(req: AuthenticatedRequest, res: Res
       perDepartmentPlayers: Number(req.body.perDepartmentPlayers ?? 0),
       events,
       managerId: String(req.body.managerId ?? ""),
-      gameCategoryId: String(req.body.gameCategoryId ?? ""),
+      gameCategoryId:
+        typeof req.body.gameCategoryId === "string" && req.body.gameCategoryId.trim()
+          ? req.body.gameCategoryId.trim()
+          : undefined,
       isActive: typeof req.body.isActive === "boolean" ? req.body.isActive : undefined,
     });
     return res.status(201).json(data);

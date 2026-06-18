@@ -22,7 +22,7 @@ import {
 import { NotificationModel } from "../models/Notification.js";
 import { RegistrationModel } from "../models/Registration.js";
 import { ResultModel } from "../models/Result.js";
-import "../models/Sport.js";
+import { SportModel } from "../models/Sport.js";
 import type { UserRole } from "../models/User.js";
 import { UserModel } from "../models/User.js";
 import { AppError } from "../utils/errors.js";
@@ -124,7 +124,7 @@ type ListStudentsParams = {
 
 export async function listStudents(params: ListStudentsParams) {
   const page = Math.max(1, params.page ?? 1);
-  const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+  const limit = Math.min(500, Math.max(1, params.limit ?? 20));
   const skip = (page - 1) * limit;
 
   const match: Record<string, unknown> = { role: "student" as UserRole };
@@ -424,9 +424,53 @@ type CreateGameInput = {
   perDepartmentPlayers: number;
   events?: Array<{ name: string; perDepartmentPlayers: number }>;
   managerId: string;
-  gameCategoryId: string;
+  gameCategoryId?: string;
   isActive?: boolean;
 };
+
+async function resolveGameCategoryForCreate(input: {
+  slug: string;
+  title: string;
+  genderCategory: "male" | "female" | "mixed";
+  gameCategoryId?: string;
+}) {
+  const explicitId = input.gameCategoryId?.trim();
+  if (explicitId) {
+    if (!Types.ObjectId.isValid(explicitId)) {
+      throw new AppError("Invalid category reference.", 400);
+    }
+    const category = await GameCategoryModel.findById(explicitId);
+    if (!category || !category.isActive) {
+      throw new AppError("Game category not found or inactive.", 404);
+    }
+    return category;
+  }
+
+  const slug = input.slug.trim().toLowerCase();
+  const existing = await GameCategoryModel.findOne({ slug });
+  if (existing) return existing;
+
+  let sport = await SportModel.findOne({ slug: "custom-games" });
+  if (!sport) {
+    sport = await SportModel.create({ name: "Custom Games", slug: "custom-games" });
+  }
+
+  try {
+    return await GameCategoryModel.create({
+      sportId: sport._id,
+      name: input.title.trim(),
+      slug,
+      gender: input.genderCategory,
+      isActive: true,
+    });
+  } catch (err) {
+    if (isDuplicateKeyError(err)) {
+      const raced = await GameCategoryModel.findOne({ slug });
+      if (raced) return raced;
+    }
+    throw err;
+  }
+}
 
 /**
  * Validates the admin-supplied slot configuration into a model-shaped
@@ -499,19 +543,21 @@ export async function createGame(input: CreateGameInput) {
     throw new AppError("All game fields are required.", 400);
   }
 
-  if (!Types.ObjectId.isValid(input.managerId) || !Types.ObjectId.isValid(input.gameCategoryId)) {
-    throw new AppError("Invalid manager or category reference.", 400);
-  }
-
-  const category = await GameCategoryModel.findById(input.gameCategoryId);
-  if (!category || !category.isActive) {
-    throw new AppError("Game category not found or inactive.", 404);
+  if (!Types.ObjectId.isValid(input.managerId)) {
+    throw new AppError("Invalid manager reference.", 400);
   }
 
   const manager = await GameManagerModel.findById(input.managerId);
   if (!manager) {
     throw new AppError("Game manager not found.", 404);
   }
+
+  const category = await resolveGameCategoryForCreate({
+    slug,
+    title,
+    genderCategory: input.genderCategory,
+    gameCategoryId: input.gameCategoryId,
+  });
 
   const slotPolicy = buildSlotPolicy(
     input.slotMode,
@@ -532,7 +578,7 @@ export async function createGame(input: CreateGameInput) {
       acceptedRegistrations: 0,
       slotPolicy,
       managerId: input.managerId,
-      gameCategoryId: input.gameCategoryId,
+      gameCategoryId: category._id,
       isActive: input.isActive ?? true,
     });
 
