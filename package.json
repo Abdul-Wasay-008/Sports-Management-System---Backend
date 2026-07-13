@@ -22,7 +22,8 @@
     "luxon": "^3.7.2",
     "mongoose": "^8.9.3",
     "morgan": "^1.10.0",
-    "nodemailer": "^8.0.6"
+    "nodemailer": "^8.0.6",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
@@ -36,7 +37,6 @@
     "eslint": "^9.16.0",
     "globals": "^15.14.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.1"
   },
   "engines": {
