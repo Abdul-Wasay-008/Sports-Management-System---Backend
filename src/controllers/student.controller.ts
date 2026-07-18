@@ -21,6 +21,7 @@ import {
   registerForDemo,
   registerForGame,
 } from "../services/student.service.js";
+import { isSportsWeekActive } from "../services/sports-week-settings.service.js";
 import { AppError } from "../utils/errors.js";
 import {
   parseOptionalDepartmentFilter,
@@ -53,6 +54,10 @@ export async function dashboardHandler(req: AuthenticatedRequest, res: Response)
 
 export async function gamesHandler(req: AuthenticatedRequest, res: Response) {
   try {
+    const active = await isSportsWeekActive();
+    if (!active) {
+      return res.status(200).json({ games: [], sportsWeekInactive: true });
+    }
     const data = await getEligibleGames(requireUserId(req), {
       department: parseOptionalDepartmentFilter(req.query.department),
       gender: parseOptionalGenderFilter(req.query.gender),
@@ -67,6 +72,10 @@ export async function gamesHandler(req: AuthenticatedRequest, res: Response) {
 
 export async function gameDetailsHandler(req: AuthenticatedRequest, res: Response) {
   try {
+    const active = await isSportsWeekActive();
+    if (!active) {
+      throw new AppError("Sports Week registrations are currently closed.", 403);
+    }
     const data = await getGameDetails(requireUserId(req), String(req.params.id));
     return res.status(200).json({ game: data });
   } catch (err) {

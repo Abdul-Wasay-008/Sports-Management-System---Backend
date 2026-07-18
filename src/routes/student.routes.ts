@@ -21,6 +21,7 @@ import {
   statsHandler,
 } from "../controllers/student.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
+import { requireSportsWeekActive } from "../middleware/sports-week.middleware.js";
 
 export const studentRouter = Router();
 
@@ -28,10 +29,11 @@ studentRouter.use(requireAuth);
 
 studentRouter.get("/dashboard", dashboardHandler);
 studentRouter.get("/games", gamesHandler);
-studentRouter.get("/games/:id/demo-slots", demoSlotsHandler);
-studentRouter.post("/games/:id/register-demo", registerDemoHandler);
+// Demo slots and registration require an active sports week
+studentRouter.get("/games/:id/demo-slots", requireSportsWeekActive, demoSlotsHandler);
+studentRouter.post("/games/:id/register-demo", requireSportsWeekActive, registerDemoHandler);
 studentRouter.get("/games/:id", gameDetailsHandler);
-studentRouter.post("/games/:id/register", registerGameHandler);
+studentRouter.post("/games/:id/register", requireSportsWeekActive, registerGameHandler);
 studentRouter.get("/registrations", myRegistrationsHandler);
 studentRouter.get("/schedule", scheduleHandler);
 studentRouter.get("/rules", rulesHandler);

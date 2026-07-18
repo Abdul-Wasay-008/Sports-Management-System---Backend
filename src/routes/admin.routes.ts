@@ -18,6 +18,10 @@ import {
   adminUpdateResultHandler,
   adminUpdateStudentHandler,
 } from "../controllers/admin.controller.js";
+import {
+  adminGetSportsWeekSettingsHandler,
+  adminUpdateSportsWeekSettingsHandler,
+} from "../controllers/sports-week-settings.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { requireAdmin } from "../middleware/admin.middleware.js";
 
@@ -45,3 +49,6 @@ adminRouter.get("/results", adminListResultsHandler);
 adminRouter.post("/results", adminCreateResultHandler);
 adminRouter.patch("/results/:id", adminUpdateResultHandler);
 adminRouter.delete("/results/:id", adminDeleteResultHandler);
+
+adminRouter.get("/sports-week-settings", adminGetSportsWeekSettingsHandler);
+adminRouter.patch("/sports-week-settings", adminUpdateSportsWeekSettingsHandler);
