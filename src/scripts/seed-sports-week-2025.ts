@@ -18,6 +18,7 @@ import { RuleModel } from "../models/Rule.js";
 import { SportModel } from "../models/Sport.js";
 import { TeamManagerNotificationModel } from "../models/TeamManagerNotification.js";
 import { UserModel } from "../models/User.js";
+import { EmailOtpModel } from "../models/EmailOtp.js";
 import { SPORTS_WEEK_DEPARTMENTS, normalizeDepartment } from "../constants/sports-week.js";
 import { deriveTeamManagerEmail, deriveTeamManagerEmailKey } from "../utils/team-manager-email.js";
 
@@ -41,20 +42,13 @@ async function unsetNullRegistrationNumbers() {
 }
 
 async function resetSportsWeekData() {
-  console.log("[seed] --reset: clearing Sports Week collections (admin account preserved)…");
-  await DemoBookingModel.deleteMany({});
+  console.log("[seed] --reset: clearing student accounts and registration data (team managers, games, and all structure preserved)…");
+  await UserModel.deleteMany({ role: "student" });
+  await EmailOtpModel.deleteMany({});
   await RegistrationModel.deleteMany({});
-  await ResultModel.deleteMany({});
+  await DemoBookingModel.deleteMany({});
   await NotificationModel.deleteMany({});
   await TeamManagerNotificationModel.deleteMany({});
-  await UserModel.deleteMany({ role: { $in: ["student", "team_manager"] } });
-  await GameManagerAssignmentModel.deleteMany({});
-  await DepartmentTeamManagerAssignmentModel.deleteMany({});
-  await GameModel.deleteMany({});
-  await GameCategoryModel.deleteMany({});
-  await SportModel.deleteMany({});
-  await CommitteeMemberModel.deleteMany({ committeeType: "core" });
-  await RuleModel.deleteMany({});
   console.log("[seed] --reset: cleared.");
 }
 
