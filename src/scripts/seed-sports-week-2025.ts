@@ -23,6 +23,7 @@ import { SPORTS_WEEK_DEPARTMENTS, normalizeDepartment } from "../constants/sport
 import { deriveTeamManagerEmail, deriveTeamManagerEmailKey } from "../utils/team-manager-email.js";
 
 const RESET_ARG = process.argv.includes("--reset");
+const FRESH_ARG = process.argv.includes("--fresh");
 const TEAM_MANAGER_PASSWORD = "TeamManager_123";
 const TM_PASSWORD_ROUNDS = 12;
 
@@ -50,6 +51,26 @@ async function resetSportsWeekData() {
   await NotificationModel.deleteMany({});
   await TeamManagerNotificationModel.deleteMany({});
   console.log("[seed] --reset: cleared.");
+}
+
+async function freshDatabase() {
+  console.log("[seed] --fresh: wiping entire database and re-seeding from scratch…");
+  await UserModel.deleteMany({});
+  await EmailOtpModel.deleteMany({});
+  await RegistrationModel.deleteMany({});
+  await DemoBookingModel.deleteMany({});
+  await NotificationModel.deleteMany({});
+  await TeamManagerNotificationModel.deleteMany({});
+  await ResultModel.deleteMany({});
+  await GameModel.deleteMany({});
+  await GameCategoryModel.deleteMany({});
+  await SportModel.deleteMany({});
+  await GameManagerModel.deleteMany({});
+  await GameManagerAssignmentModel.deleteMany({});
+  await DepartmentTeamManagerAssignmentModel.deleteMany({});
+  await CommitteeMemberModel.deleteMany({});
+  await RuleModel.deleteMany({});
+  console.log("[seed] --fresh: wiped.");
 }
 
 type SeedCategory = {
@@ -283,7 +304,9 @@ async function run() {
 
   await unsetNullRegistrationNumbers();
 
-  if (RESET_ARG) {
+  if (FRESH_ARG) {
+    await freshDatabase();
+  } else if (RESET_ARG) {
     await resetSportsWeekData();
   }
 
