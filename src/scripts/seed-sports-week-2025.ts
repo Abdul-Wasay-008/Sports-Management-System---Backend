@@ -41,13 +41,13 @@ async function unsetNullRegistrationNumbers() {
 }
 
 async function resetSportsWeekData() {
-  console.log("[seed] --reset: clearing Sports Week collections (users/admin preserved)…");
+  console.log("[seed] --reset: clearing Sports Week collections (admin account preserved)…");
   await DemoBookingModel.deleteMany({});
   await RegistrationModel.deleteMany({});
   await ResultModel.deleteMany({});
   await NotificationModel.deleteMany({});
   await TeamManagerNotificationModel.deleteMany({});
-  await UserModel.deleteMany({ role: "team_manager" });
+  await UserModel.deleteMany({ role: { $in: ["student", "team_manager"] } });
   await GameManagerAssignmentModel.deleteMany({});
   await DepartmentTeamManagerAssignmentModel.deleteMany({});
   await GameModel.deleteMany({});
